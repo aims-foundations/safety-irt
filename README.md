@@ -1,35 +1,31 @@
 # Decoupling Safety Alignment from Translation Difficulty: A Multi-Group IRT Approach
 
-[cite_start]**Authors:** Max Zhang & Ameen Patel [cite: 2]
-
----
-
 ### 1. Motivation & Problem Formulation
-[cite_start]Large Language Models (LLMs) show significant safety degradation in non-English, low-resource languages like Swahili and Javanese[cite: 4]. [cite_start]Current metrics like Jailbreak Success Rate (JSR) use binary Safe/Unsafe labels, which fail to distinguish between a model's lack of safety alignment and the inherent difficulty introduced by translation.
+Large Language Models (LLMs) show significant safety degradation in non-English, low-resource languages like Swahili and Javanese[cite: 4]. Current metrics like Jailbreak Success Rate (JSR) use binary Safe/Unsafe labels, which fail to distinguish between a model's lack of safety alignment and the inherent difficulty introduced by translation.
 
-[cite_start]This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to decouple these factors, allowing for more targeted alignment and fairer benchmarking.
+This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to decouple these factors, allowing for more targeted alignment and fairer benchmarking.
 
 ### 2. Theoretical Framework
-[cite_start]We use a **Many-Facet Rasch Model** to jointly estimate safety parameters[cite: 31]. The probability of a safe response is modeled as:
+We use a **Many-Facet Rasch Model** to jointly estimate safety parameters[cite: 31]. The probability of a safe response is modeled as:
 
-[cite_start]P(Safe) = sigma(Model_Ability - (Prompt_Difficulty + Language_Fluency_Shift + Translation_Safety_Cost)) 
+P(Safe) = sigma(Model_Ability - (Prompt_Difficulty + Language_Fluency_Shift + Translation_Safety_Cost)) 
 
 #### Key Parameters:
-* [cite_start]**Base Safety Capability (theta):** The language-agnostic safety "ability" of the model.
+**Base Safety Capability (theta):** The language-agnostic safety "ability" of the model.
 
-* [cite_start]**Base Difficulty (beta):** The intrinsic difficulty of the prompt, derived from English.
-* [cite_start]**Fluency Shift (gamma):** The global difficulty increase of processing a specific language.
-* [cite_start]**Translation Safety Cost (tau):** The prompt-specific drift representing how much translation distorts the safety concept.
+**Base Difficulty (beta):** The intrinsic difficulty of the prompt, derived from English.
+**Fluency Shift (gamma):** The global difficulty increase of processing a specific language.
+**Translation Safety Cost (tau):** The prompt-specific drift representing how much translation distorts the safety concept.
 
-[cite_start]We apply a **hierarchical shrinkage prior** (e.g., Horseshoe) to the translation cost terms to ensure stability and mitigate confounding factors.
+We apply a **hierarchical shrinkage prior** (e.g., Horseshoe) to the translation cost terms to ensure stability and mitigate confounding factors.
 
 ### 3. Methodology
-* [cite_start]**Dataset:** We utilize the **MultiJail** dataset, featuring 3,150 prompts across 10 languages and 18 safety categories.
-* [cite_start]**Models:** Evaluation includes 20 open-source models from the **Llama 3**, **Gemma 2**, and **Qwen 2.5** families.
-* [cite_start]**Grading:** We employ **LLM-as-a-Judge** (GPT-4o) to grade ~60,000 responses, with a validation panel consisting of Claude 3.5 Sonnet and Qwen to mitigate bias.
-* [cite_start]**Implementation:** Parameters are estimated via Variational Inference using the **py-irt** library.
+**Dataset:** We utilize the **MultiJail** dataset, featuring 3,150 prompts across 10 languages and 18 safety categories.
+**Models:** Evaluation includes 20 open-source models from the **Llama 3**, **Gemma 2**, and **Qwen 2.5** families.
+**Grading:** We employ **LLM-as-a-Judge** (GPT-4o) to grade ~60,000 responses, with a validation panel consisting of Claude 3.5 Sonnet and Qwen to mitigate bias.
+**Implementation:** Parameters are estimated via Variational Inference using the **py-irt** library.
 
 ### 4. Ideal Results & Hypotheses
-* [cite_start]**The Cost is Real:** We expect the Translation Safety Cost to be positive and statistically significant for low-resource languages.
-* [cite_start]**Rank Reversal:** We anticipate identifying models that are unfairly penalized by JSR but actually possess high intrinsic safety capabilities.
-* [cite_start]**Concept Alignment:** We hypothesize that physical harm categories (e.g., weapons) will have higher translation costs than abstract ones.
+**The Cost is Real:** We expect the Translation Safety Cost to be positive and statistically significant for low-resource languages.
+**Rank Reversal:** We anticipate identifying models that are unfairly penalized by JSR but actually possess high intrinsic safety capabilities.
+**Concept Alignment:** We hypothesize that physical harm categories (e.g., weapons) will have higher translation costs than abstract ones.

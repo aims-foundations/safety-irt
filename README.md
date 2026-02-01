@@ -1,12 +1,12 @@
 # Decoupling Safety Alignment from Translation Difficulty: A Multi-Group IRT Approach
 
 ### 1. Motivation & Problem Formulation
-Large Language Models (LLMs) show significant safety degradation in non-English, low-resource languages like Swahili and Javanese[cite: 4]. Current metrics like Jailbreak Success Rate (JSR) use binary Safe/Unsafe labels, which fail to distinguish between a model's lack of safety alignment and the inherent difficulty introduced by translation.
+Large Language Models (LLMs) show significant safety degradation in non-English, low-resource languages like Swahili and Javanese. Current metrics like Jailbreak Success Rate (JSR) use binary Safe/Unsafe labels, which fail to distinguish between a model's lack of safety alignment and the inherent difficulty introduced by translation.
 
 This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to decouple these factors, allowing for more targeted alignment and fairer benchmarking.
 
 ### 2. Theoretical Framework
-We use a **Many-Facet Rasch Model** to jointly estimate safety parameters[cite: 31]. The probability of a safe response is modeled as:
+We use a **Many-Facet Rasch Model** to jointly estimate safety parameters. The probability of a safe response is modeled as:
 
 P(Safe) = sigma(Model_Ability - (Prompt_Difficulty + Language_Fluency_Shift + Translation_Safety_Cost)) 
 

@@ -48,9 +48,9 @@ else
 fi
 
 #4. Additional EFA correlation code
-if [ -f "EFA_categorical_correlation.py" ]; then
+if [ -f "EFA_additional_analysis.py" ]; then
     echo "Running additional EFA Analysis..."
-    python EFA_categorical_correlation.py
+    python EFA_additional_analysis..py
 else
     echo "No main IRT script found."
 fi

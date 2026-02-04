@@ -43,12 +43,9 @@ fi
 # 3. RUN MAIN IRT ANALYSIS
 # ------------------------------------------------------------------------------
 # Checks for the file we created in previous steps
-if [ -f "run_anchored_irt.py" ]; then
+if [ -f "model/irt_with_new_term.py" ]; then
     echo "🧠 Running Anchored IRT Model..."
     python run_anchored_irt.py
-elif [ -f "run_joint_irt.py" ]; then
-    echo "🧠 Running Joint IRT Model..."
-    python run_joint_irt.py
 else
     echo "⚠️  No main IRT script found (e.g., run_anchored_irt.py). Skipping model training."
 fi

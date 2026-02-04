@@ -1,0 +1,32 @@
+# Claude Code instructions
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+.env
+
+# Jupyter (notebooks converted to .py)
+.ipynb_checkpoints/
+*.ipynb
+
+# PyTorch/Pyro model saves
+*.pt
+*.pth
+
+# Output files
+*.csv
+*.jsonl
+*.npz
+*.png
+
+# IDE
+.vscode/
+.idea/
+
+# Overleaf
+safety-irt-overleaf/

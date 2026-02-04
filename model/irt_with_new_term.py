@@ -7,7 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/172Fop3VDpEMqbeuNEbqpmP6SMfC_zzRN
 """
 
-!pip install torch pyro-ppl pandas numpy matplotlib seaborn tqdm
 
 import torch
 import pyro
@@ -24,7 +23,7 @@ import os
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-INPUT_FILE = "/content/FINALMERGEDTAGGED.csv"
+INPUT_FILE = "FINALMERGEDTAGGED.csv"
 ANCHOR_FILE = "anchors.csv"
 SAVE_MODEL_FILE = "irt_params_binary_final.pt"
 SAVE_RESULTS_FILE = "bayesian_irt_results_binary.csv"

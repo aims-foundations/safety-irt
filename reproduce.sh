@@ -1,73 +1,74 @@
 #!/bin/bash
 
 # ==============================================================================
-# REPRODUCE.SH - Automate Project Reproduction
+# REPRODUCE.SH - Safety Tax Project
 # ==============================================================================
 # Usage: ./reproduce.sh
 #
-# This script will:
-# 1. Create a Python virtual environment
-# 2. Install dependencies
-# 3. Run the main experiment/analysis
-# 4. Generate the final results
+# This script sets up the environment and attempts to run the core analysis pipeline.
 # ==============================================================================
 
-# 1. PRE-FLIGHT CHECKS
-# ------------------------------------------------------------------------------
-# 'set -e' stops the execution immediately if any command fails (returns non-zero).
-# 'set -u' stops execution if an unset variable is used.
-set -eu
+set -e  # Exit immediately if a command exits with a non-zero status
 
-echo "🚀 Starting reproduction script..."
+echo "🚀 Starting reproduction pipeline..."
 
-# 2. ENVIRONMENT SETUP
+# 1. ENVIRONMENT SETUP
 # ------------------------------------------------------------------------------
-VENV_NAME="venv_reproduce"
+VENV_NAME="venv_safety_tax"
 
 if [ -d "$VENV_NAME" ]; then
-    echo "✅ Virtual environment '$VENV_NAME' already exists. Activating..."
+    echo "✅ Virtual environment '$VENV_NAME' detected. Activating..."
 else
     echo "📦 Creating virtual environment '$VENV_NAME'..."
     python3 -m venv $VENV_NAME
 fi
 
-# Activate the environment
+# Activate venv
 source $VENV_NAME/bin/activate
 
-# Install requirements
+# Upgrade pip just in case
+pip install --upgrade pip
+
+# 2. INSTALL DEPENDENCIES
+# ------------------------------------------------------------------------------
 if [ -f "requirements.txt" ]; then
-    echo "⬇️ Installing dependencies from requirements.txt..."
+    echo "⬇️  Installing dependencies from requirements.txt..."
     pip install -r requirements.txt
 else
-    echo "⚠️ Warning: requirements.txt not found. Skipping dependency install."
-fi
-
-# 3. DATA PREPARATION
-# ------------------------------------------------------------------------------
-# Create a data directory if it doesn't exist
-mkdir -p data
-
-# Example: Download a file if it's missing (Uncomment to use)
-# if [ ! -f "data/dataset.csv" ]; then
-#     echo "🌍 Downloading dataset..."
-#     curl -o data/dataset.csv https://example.com/data/dataset.csv
-# fi
-
-# 4. RUN MAIN EXPERIMENT
-# ------------------------------------------------------------------------------
-echo "🧠 Running main analysis/experiment..."
-
-# Replace 'main.py' with your actual script name
-# We assume the script outputs something to a 'results' folder
-if [ -f "main.py" ]; then
-    python main.py
-else
-    echo "❌ Error: main.py not found!"
+    echo "❌ Error: requirements.txt not found!"
     exit 1
 fi
 
-# 5. CLEANUP / FINISH
+# 3. RUN POWER CALCULATION (If present)
 # ------------------------------------------------------------------------------
-echo "🎉 Reproduction complete!"
-echo "   Results can be found in the /results directory."
-echo "   To exit the virtual environment, run: deactivate"
+if [ -f "power_calculation.py" ]; then
+    echo "⚡ Found power_calculation.py. Running simulation..."
+    python power_calculation.py
+else
+    echo "⚠️  power_calculation.py not found. Skipping."
+fi
+
+# 4. RUN MAIN IRT ANALYSIS
+# ------------------------------------------------------------------------------
+# Checks for the file we created in previous steps
+if [ -f "run_anchored_irt.py" ]; then
+    echo "🧠 Running Anchored IRT Model..."
+    python run_anchored_irt.py
+elif [ -f "run_joint_irt.py" ]; then
+    echo "🧠 Running Joint IRT Model..."
+    python run_joint_irt.py
+else
+    echo "⚠️  No main IRT script found (e.g., run_anchored_irt.py). Skipping model training."
+fi
+
+# 5. JUPYTER KERNEL SETUP (Optional)
+# ------------------------------------------------------------------------------
+# This registers the venv so you can use it inside Jupyter Notebooks
+echo "🔗 Registering Jupyter kernel..."
+python -m ipykernel install --user --name=$VENV_NAME --display-name "Python ($VENV_NAME)"
+
+# 6. FINISH
+# ------------------------------------------------------------------------------
+echo "🎉 Setup complete!"
+echo "   - To use the environment: source $VENV_NAME/bin/activate"
+echo "   - To run the BatchGrading notebook, launch: jupyter notebook"

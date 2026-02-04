@@ -26,4 +26,7 @@ requests>=2.31
 
 # Jupyter notebooks
 jupyter>=1.0
-ipykernel>=6.29          
+ipykernel>=6.29
+
+# Human Judge ablation
+deep-translator>=1.11

@@ -2,7 +2,9 @@ Download FINALMERGEDTAGGED.csv and anchors.csv
 https://huggingface.co/datasets/MaxZ119/safetyirt/tree/main
 
 clone Github, add the two csv files to "model" folder.
+
 chmod +x reproduce.sh
+
 ./reproduce.sh
 
 

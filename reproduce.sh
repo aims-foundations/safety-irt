@@ -39,16 +39,8 @@ else
     exit 1
 fi
 
-# 3. RUN POWER CALCULATION (If present)
-# ------------------------------------------------------------------------------
-if [ -f "power_calculation.py" ]; then
-    echo "⚡ Found power_calculation.py. Running simulation..."
-    python power_calculation.py
-else
-    echo "⚠️  power_calculation.py not found. Skipping."
-fi
 
-# 4. RUN MAIN IRT ANALYSIS
+# 3. RUN MAIN IRT ANALYSIS
 # ------------------------------------------------------------------------------
 # Checks for the file we created in previous steps
 if [ -f "run_anchored_irt.py" ]; then
@@ -61,7 +53,7 @@ else
     echo "⚠️  No main IRT script found (e.g., run_anchored_irt.py). Skipping model training."
 fi
 
-# 5. JUPYTER KERNEL SETUP (Optional)
+# 4. JUPYTER KERNEL SETUP (Optional)
 # ------------------------------------------------------------------------------
 # This registers the venv so you can use it inside Jupyter Notebooks
 echo "🔗 Registering Jupyter kernel..."

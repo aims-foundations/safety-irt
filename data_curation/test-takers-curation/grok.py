@@ -62,7 +62,6 @@ get_ipython().system('pip install typing_extensions --upgrade')
 
 # In[ ]:
 
-
 import asyncio
 import pandas as pd
 import os
@@ -79,9 +78,8 @@ OUTPUT_FILE = "multijail_results_grok4_reasoning.csv"
 API_KEY = ""
 
 # --- MODEL LIST ---
-# Updated to the requested reasoning models
 MODELS = [
-    "grok-4-1-fast-reasoning"
+    "grok-4-1-fast-reasoning",
     "grok-4-1-fast-non-reasoning",
     "grok-4-fast-reasoning",
     "grok-4-fast-non-reasoning"
@@ -125,7 +123,7 @@ async def save_buffer():
             df_save.to_csv(OUTPUT_FILE, mode='a', header=not file_exists, index=False, encoding="utf-8")
             result_buffer.clear()
 
-async def get_grok_response(model, prompt, prompt_id, language, variant_name, settings):
+async def get_grok_response(model, prompt, prompt_id, language, variant_name, settings, pass_index):
     test_taker_name = f"{model}_{variant_name}"
     
     async with semaphore:
@@ -152,6 +150,7 @@ async def get_grok_response(model, prompt, prompt_id, language, variant_name, se
                     "model": model,
                     "variant": variant_name,
                     "test_taker": test_taker_name,
+                    "pass": pass_index, # [NEW] Track which pass this is
                     "response": response_text,
                     "finish_reason": finish_reason,
                     "temperature": settings["temp"],
@@ -168,7 +167,8 @@ async def get_grok_response(model, prompt, prompt_id, language, variant_name, se
                 if e.status_code == 403:
                     filter_data = {
                         "id": prompt_id, "language": language, "model": model, "variant": variant_name,
-                        "test_taker": test_taker_name, "response": f"[BLOCKED_BY_API] {str(e)}", 
+                        "test_taker": test_taker_name, "pass": pass_index,
+                        "response": f"[BLOCKED_BY_API] {str(e)}", 
                         "finish_reason": "content_filter", "temperature": settings["temp"], "top_p": settings["top_p"]
                     }
                     result_buffer.append(filter_data)
@@ -190,7 +190,8 @@ async def get_grok_response(model, prompt, prompt_id, language, variant_name, se
             if attempt == retries - 1:
                 fail_data = {
                     "id": prompt_id, "language": language, "model": model, "variant": variant_name,
-                    "test_taker": test_taker_name, "response": "ERROR_FAILED_RETRIES", "finish_reason": "error",
+                    "test_taker": test_taker_name, "pass": pass_index,
+                    "response": "ERROR_FAILED_RETRIES", "finish_reason": "error",
                     "temperature": settings["temp"], "top_p": settings["top_p"]
                 }
                 result_buffer.append(fail_data)
@@ -213,9 +214,14 @@ async def main():
         print(f"🔍 Checking existing progress in '{OUTPUT_FILE}'...")
         try:
             existing_df = pd.read_csv(OUTPUT_FILE, encoding="utf-8", on_bad_lines='skip', engine='python')
-            for _, row in existing_df.iterrows():
-                key = (row['id'], row['language'], row['test_taker'])
-                completed_keys.add(key)
+            if 'pass' in existing_df.columns:
+                for _, row in existing_df.iterrows():
+                    # Key now includes pass index
+                    key = (row['id'], row['language'], row['test_taker'], row['pass'])
+                    completed_keys.add(key)
+            else:
+                print("⚠️ Existing file missing 'pass' column. Overwriting or starting fresh advised.")
+                
             print(f"✅ Resuming... {len(completed_keys)} responses found.")
         except Exception as e:
             print(f"⚠️ Could not read existing file: {e}. Starting fresh.")
@@ -225,24 +231,29 @@ async def main():
     # --- GENERATE TASKS ---
     tasks = []
     skipped_count = 0
-    total_expected = len(df) * len(MODELS) * len(VARIANTS)
-    print(f"🎯 Target Total: {total_expected} responses")
+    
+    # [FIXED] Changed * 3 to * 2
+    total_expected = len(df) * len(MODELS) * len(VARIANTS) * 2 
+    print(f"🎯 Target Total: {total_expected} responses (Pass 2)")
 
     for _, row in df.iterrows():
         for model in MODELS:
             for variant_name, settings in VARIANTS.items():
                 test_taker_name = f"{model}_{variant_name}"
-                unique_key = (row['id'], row['language'], test_taker_name)
                 
-                if unique_key in completed_keys:
-                    skipped_count += 1
-                    continue
-                
-                tasks.append(asyncio.create_task(
-                    get_grok_response(
-                        model, row['prompt'], row['id'], row['language'], variant_name, settings
-                    )
-                ))
+                # [FIXED] Changed range(3) to range(2)
+                for pass_index in range(2):
+                    unique_key = (row['id'], row['language'], test_taker_name, pass_index)
+                    
+                    if unique_key in completed_keys:
+                        skipped_count += 1
+                        continue
+                    
+                    tasks.append(asyncio.create_task(
+                        get_grok_response(
+                            model, row['prompt'], row['id'], row['language'], variant_name, settings, pass_index
+                        )
+                    ))
 
     print(f"⏩ Skipped {skipped_count} already completed.")
     if not tasks:
@@ -252,7 +263,6 @@ async def main():
     print(f"⚡ Queueing remaining {len(tasks)} tasks...")
 
     # --- RUN LOOP ---
-    # Using 'miniters' to update the bar less frequently, saving console buffer
     for i, f in enumerate(tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Grok Reasoning Generation", miniters=50)):
         await f
         if i % 100 == 0 and i > 0:
@@ -263,7 +273,6 @@ async def main():
 
 if __name__ == "__main__":
     await main()
-
 
 # In[2]:
 

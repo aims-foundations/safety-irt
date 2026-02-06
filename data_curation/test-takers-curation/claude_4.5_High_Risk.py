@@ -80,15 +80,12 @@ OUTPUT_FILE = "multijail_results_claude_4.5_high_risk.csv"
 API_KEY = ""
 
 # --- CORRECTED MODEL LIST ---
-# The correct ID for Claude 3.5 Haiku is 'claude-3-5-haiku-20241022'
 MODELS = [
-    "claude-4-5-haiku-20241022"    
+    "claude-haiku-4-5-20251001"    
 ]
 
-# --- THE 4 VARIANTS ---
-# Removed 'temp' to comply with "change only one parameter" rule.
-# You can adjust top_p here if you want to control randomness.
-# top_p: 1.0 is standard; 0.95 removes the least likely 5% of tokens.
+# --- THE VARIANTS ---
+# Keeping your specific configuration (High Risk only)
 VARIANTS = {
     "High_Risk": {"top_p": 0.95}, 
 }
@@ -101,7 +98,7 @@ if not API_KEY or "PASTE" in API_KEY:
 
 client = AsyncAnthropic(api_key=API_KEY)
 
-# LOWER CONCURRENCY to prevent 529 loops (3 is safe, 5 is risky during peak hours)
+# LOWER CONCURRENCY to prevent 529 loops
 semaphore = asyncio.Semaphore(3) 
 
 result_buffer = []
@@ -119,14 +116,14 @@ async def save_buffer():
             df_save.to_csv(OUTPUT_FILE, mode='a', header=not file_exists, index=False, encoding="utf-8")
             result_buffer.clear()
 
-async def get_claude_response(model, prompt, prompt_id, language, variant_name, settings):
+async def get_claude_response(model, prompt, prompt_id, language, variant_name, settings, pass_index):
     test_taker_name = f"{model}_{variant_name}"
     
     async with semaphore:
-        retries = 5  # Increased retries for 529 errors
+        retries = 5 
         for attempt in range(retries):
             try:
-                # --- CHANGE: Removed temperature argument ---
+                # --- CHANGE: Removed temperature argument as requested ---
                 resp = await client.messages.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
@@ -145,9 +142,10 @@ async def get_claude_response(model, prompt, prompt_id, language, variant_name, 
                     "model": model,
                     "variant": variant_name,
                     "test_taker": test_taker_name,
+                    "pass": pass_index, # [NEW] Added Pass Index
                     "response": response_text,
                     "finish_reason": finish_reason,
-                    "temperature": "Default", # Log as Default since we aren't setting it
+                    "temperature": "Default",
                     "top_p": settings["top_p"]
                 }
                 
@@ -156,33 +154,31 @@ async def get_claude_response(model, prompt, prompt_id, language, variant_name, 
                 return result_data
 
             except APIStatusError as e:
-                # --- HANDLER FOR 529 (OVERLOADED) & 429 (RATE LIMIT) ---
+                # --- HANDLER FOR 529 & 429 ---
                 if e.status_code in [429, 529] or "overloaded" in str(e).lower():
-                    # Backoff: 5s, 10s, 20s... + random jitter to prevent thundering herd
                     wait_time = (5 * (attempt + 1)) + random.uniform(0, 3)
-                    
-                    # Only print if it's a long wait (to keep console clean)
                     if attempt > 1: 
                         tqdm.write(f"⏳ Server Busy ({e.status_code}) - {test_taker_name} waiting {wait_time:.1f}s...")
-                    
                     await asyncio.sleep(wait_time)
-                    continue # Force retry loop
+                    continue 
                 
-                # --- HANDLER FOR 404 (MODEL NOT FOUND) ---
+                # --- HANDLER FOR 404 ---
                 elif e.status_code == 404:
                     fail_data = {
                         "id": prompt_id, "language": language, "model": model, "variant": variant_name,
-                        "test_taker": test_taker_name, "response": "ERROR_MODEL_NOT_FOUND", "finish_reason": "error",
+                        "test_taker": test_taker_name, "pass": pass_index,
+                        "response": "ERROR_MODEL_NOT_FOUND", "finish_reason": "error",
                         "temperature": "Default", "top_p": settings["top_p"]
                     }
                     result_buffer.append(fail_data)
                     return fail_data
                 
-                # --- HANDLER FOR CONTENT FILTERS (400/403) ---
+                # --- HANDLER FOR CONTENT FILTERS ---
                 elif e.status_code in [400, 403]:
                     filter_data = {
                         "id": prompt_id, "language": language, "model": model, "variant": variant_name,
-                        "test_taker": test_taker_name, "response": f"[BLOCKED_BY_API] {str(e)}", "finish_reason": "content_filter",
+                        "test_taker": test_taker_name, "pass": pass_index,
+                        "response": f"[BLOCKED_BY_API] {str(e)}", "finish_reason": "content_filter",
                         "temperature": "Default", "top_p": settings["top_p"]
                     }
                     result_buffer.append(filter_data)
@@ -194,11 +190,11 @@ async def get_claude_response(model, prompt, prompt_id, language, variant_name, 
             except Exception as e:
                 tqdm.write(f"⚠️ Error {test_taker_name}: {e}")
             
-            # General Retry Logic (for non-APIStatusErrors)
             if attempt == retries - 1:
                 fail_data = {
                     "id": prompt_id, "language": language, "model": model, "variant": variant_name,
-                    "test_taker": test_taker_name, "response": "ERROR_FAILED_RETRIES", "finish_reason": "error",
+                    "test_taker": test_taker_name, "pass": pass_index,
+                    "response": "ERROR_FAILED_RETRIES", "finish_reason": "error",
                     "temperature": "Default", "top_p": settings["top_p"]
                 }
                 result_buffer.append(fail_data)
@@ -221,9 +217,14 @@ async def main():
         print(f"🔍 Checking existing progress in '{OUTPUT_FILE}'...")
         try:
             existing_df = pd.read_csv(OUTPUT_FILE, encoding="utf-8", on_bad_lines='skip', engine='python')
-            for _, row in existing_df.iterrows():
-                key = (row['id'], row['language'], row['test_taker'])
-                completed_keys.add(key)
+            
+            if 'pass' in existing_df.columns:
+                for _, row in existing_df.iterrows():
+                    key = (row['id'], row['language'], row['test_taker'], row['pass'])
+                    completed_keys.add(key)
+            else:
+                print("⚠️ Existing file missing 'pass' column. Overwriting or starting fresh advised.")
+                
             print(f"✅ Resuming... {len(completed_keys)} responses already found.")
         except Exception as e:
             print(f"⚠️ Could not read existing file: {e}. Starting fresh.")
@@ -233,24 +234,29 @@ async def main():
     # --- GENERATE TASKS ---
     tasks = []
     skipped_count = 0
-    total_expected = len(df) * len(MODELS) * len(VARIANTS)
+    
+    # [FIXED] Multiplied by 2 for Pass 2
+    total_expected = len(df) * len(MODELS) * len(VARIANTS) * 2
     print(f"🎯 Target Total: {total_expected} responses")
 
     for _, row in df.iterrows():
         for model in MODELS:
             for variant_name, settings in VARIANTS.items():
                 test_taker_name = f"{model}_{variant_name}"
-                unique_key = (row['id'], row['language'], test_taker_name)
                 
-                if unique_key in completed_keys:
-                    skipped_count += 1
-                    continue
-                
-                tasks.append(asyncio.create_task(
-                    get_claude_response(
-                        model, row['prompt'], row['id'], row['language'], variant_name, settings
-                    )
-                ))
+                # [NEW] Pass Loop (0 and 1)
+                for pass_index in range(2):
+                    unique_key = (row['id'], row['language'], test_taker_name, pass_index)
+                    
+                    if unique_key in completed_keys:
+                        skipped_count += 1
+                        continue
+                    
+                    tasks.append(asyncio.create_task(
+                        get_claude_response(
+                            model, row['prompt'], row['id'], row['language'], variant_name, settings, pass_index
+                        )
+                    ))
 
     print(f"⏩ Skipped {skipped_count} already completed.")
     if not tasks:

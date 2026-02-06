@@ -10,6 +10,9 @@
 
 set -e
 
+# Always run from the directory where this script lives
+cd "$(dirname "$0")"
+
 echo "🚀 Starting reproduction pipeline..."
 
 # 1. ENVIRONMENT SETUP
@@ -25,6 +28,10 @@ fi
 
 source $VENV_NAME/bin/activate
 
+# Set HF cache to a local writable directory (avoids AFS/NFS permission issues)
+export HF_HOME="$(pwd)/.hf_cache"
+mkdir -p "$HF_HOME"
+
 # Upgrade pip just in case
 pip install --upgrade pip
 
@@ -39,32 +46,26 @@ else
 fi
 
 cd model
-#3. RUN MAIN EFA ANALYSIS
-if [ -f "EFA_notebook.py" ]; then
-    echo "Running EFA Analysis..."
-    python EFA_notebook.py
-else
-    echo "No main IRT script found."
-fi
 
-#4. Additional EFA correlation code
-if [ -f "EFA_additional_analysis.py" ]; then
-    echo "Running additional EFA Analysis..."
-    python EFA_additional_analysis.py
-else
-    echo "No main IRT script found."
-fi
-
-# 3. RUN MAIN IRT ANALYSIS
+# 3. RUN EFA ANALYSIS
 # ------------------------------------------------------------------------------
-if [ -f "irt_with_new_term.py" ]; then
-    echo "Running Anchored IRT Model..."
-    python irt_with_new_term.py
+if [ -f "efa.py" ]; then
+    echo "Running EFA Analysis..."
+    python efa.py
 else
-    echo "No main IRT script found."
+    echo "No EFA script found."
 fi
 
-# 4. JUPYTER KERNEL SETUP (Optional)
+# 4. RUN IRT ANALYSIS
+# ------------------------------------------------------------------------------
+if [ -f "irt.py" ]; then
+    echo "Running Anchored IRT Model..."
+    python irt.py
+else
+    echo "No IRT script found."
+fi
+
+# 5. JUPYTER KERNEL SETUP (Optional)
 # ------------------------------------------------------------------------------
 echo "🔗 Registering Jupyter kernel..."
 python -m ipykernel install --user --name=$VENV_NAME --display-name "Python ($VENV_NAME)"

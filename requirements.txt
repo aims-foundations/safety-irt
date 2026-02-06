@@ -2,6 +2,9 @@
 torch>=2.2           
 pyro-ppl>=1.9.0        
 
+# Data download
+huggingface-hub>=0.20
+
 # Data processing
 pandas>=2.2            
 numpy>=2.0             
@@ -17,7 +20,7 @@ tqdm>=4.66
 factor-analyzer>=0.5
 
 # Power calculation (power_calculation.py)
-scikit-learn>=1.4      
+scikit-learn>=1.4,<1.6      
 
 # Batch grading pipeline (data_curation/BatchGrading.ipynb)
 openai>=1.12          

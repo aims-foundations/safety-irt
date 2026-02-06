@@ -24,6 +24,9 @@ venv/
 *.npz
 *.png
 
+# Model results
+model/results/
+
 # IDE
 .vscode/
 .idea/

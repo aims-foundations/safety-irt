@@ -93,7 +93,62 @@ def merge_general_csvs(file_list, output_file):
     if 'test_taker' in master_df.columns:
         print(f"Unique Models:  {master_df['test_taker'].nunique()}")
     print(f"Saved to:       {output_file}")
+def merge_passes_csv(file_list, output_file):
+    """
+    Merges multiple CSVs, adding a 'pass' column sequentially based on input order.
+    Example: First file gets pass=1, second gets pass=2, etc.
+    """
+    dataframes = []
+    
+    print(f"{'File Name':<30} | {'Pass':<5} | {'Rows':<8} | {'Ghost Rows (No Model)'}")
+    print("-" * 80)
 
+    total_ghosts = 0
+
+    for idx, filename in enumerate(file_list):
+        # Pass numbering starts at 1
+        pass_num = idx + 1
+        
+        if not os.path.exists(filename):
+            print(f"{filename:<30} | {'N/A':<5} | {'Missing':<8} | -")
+            continue
+            
+        try:
+            df = pd.read_csv(filename, low_memory=False)
+            
+            # Add 'pass' column
+            df['pass'] = pass_num
+            
+            # Count ghosts (missing test_taker or model)
+            # We check both standard columns to be safe
+            col_check = 'test_taker' if 'test_taker' in df.columns else 'model'
+            
+            if col_check in df.columns:
+                ghost_count = df[col_check].isna().sum()
+            else:
+                ghost_count = len(df) # Everything is a ghost if no ID column
+            
+            total_ghosts += ghost_count
+            
+            print(f"{os.path.basename(filename):<30} | {pass_num:<5} | {len(df):<8} | {ghost_count}")
+            dataframes.append(df)
+            
+        except Exception as e:
+            print(f"Error reading {filename}: {e}")
+
+    if dataframes:
+        master_df = pd.concat(dataframes, ignore_index=True)
+        
+        # Final Report
+        print("=" * 80)
+        print(f"MASTER DATASET CREATED: {output_file}")
+        print(f"Total Rows:       {len(master_df)}")
+        print(f"Total Ghost Rows: {total_ghosts}")
+        print(f"Valid Data Rows:  {len(master_df) - total_ghosts}")
+        
+        master_df.to_csv(output_file, index=False)
+    else:
+        print("\nNo valid files were loaded. Master dataset NOT created.")
 
 def count_tokens(input_file, encoding_name="cl100k_base"):
     """Count tokens per response using tiktoken and print summary stats."""
@@ -221,6 +276,11 @@ def main():
     p_merge.add_argument("--files", nargs="+", required=True, help="CSV files to merge")
     p_merge.add_argument("--output", required=True, help="Output CSV")
 
+    # Subcommand: merge-passes, multiple passes csv merge
+    p_mp = sub.add_parser("merge-passes", help="Merge CSVs and add sequential pass numbers")
+    p_mp.add_argument("--files", nargs="+", required=True, help="List of files (Order matters: 1st=Pass1, 2nd=Pass2...)")
+    p_mp.add_argument("--output", required=True, help="Output filename")
+
     # Subcommand: count-tokens
     p_tokens = sub.add_parser("count-tokens", help="Count tokens per response")
     p_tokens.add_argument("--input", required=True, help="Input CSV")
@@ -242,6 +302,8 @@ def main():
         count_tokens(args.input, args.encoding)
     elif args.cmd == "jsr-report":
         generate_jsr_report(args.input)
+    elif args.cmd == "merge-passes":
+        merge_passes_csv(args.files, args.output)
 
 
 if __name__ == "__main__":

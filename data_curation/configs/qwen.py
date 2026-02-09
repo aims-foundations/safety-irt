@@ -4,7 +4,7 @@ Start the vLLM server first:
     CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-7B-Instruct --port 8234 --gpu-memory-utilization 0.9
 
 Then run:
-    python -m data_curation.test_takers.run --config qwen
+    python -m data_curation.test_takers --config qwen
 """
 
 import os

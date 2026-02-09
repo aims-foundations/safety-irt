@@ -1,9 +1,9 @@
 """Unified test-taker response collection runner.
 
 Usage:
-    python -m data_curation.test_takers.run --config gpt
-    python -m data_curation.test_takers.run --config gemini --input multijail.csv
-    python -m data_curation.test_takers.run --config claude_3 --dry-run
+    python -m data_curation.test_takers --config gpt
+    python -m data_curation.test_takers --config gemini --input multijail.csv
+    python -m data_curation.test_takers --config claude_3 --dry-run
 """
 
 import argparse
@@ -17,7 +17,7 @@ import pandas as pd
 from tqdm.asyncio import tqdm
 
 # Add parent to path for imports when run directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from data_curation.shared.async_helpers import (
     create_csv_saver,
@@ -27,8 +27,8 @@ from data_curation.shared.async_helpers import (
 
 
 def load_config(config_name):
-    """Dynamically import a config module from test_takers/configs/."""
-    module = importlib.import_module(f"data_curation.test_takers.configs.{config_name}")
+    """Dynamically import a config module from configs/."""
+    module = importlib.import_module(f"data_curation.configs.{config_name}")
     return module
 
 

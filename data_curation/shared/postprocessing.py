@@ -257,6 +257,75 @@ def generate_jsr_report(input_file):
             print(f"  - {variant:<15} {score:.2f}%")
         print("-" * 30)
 
+def check_missing_passes(file_list):
+    """Checks each test-taker against the expected 3150 prompts per pass."""
+    PROMPTS_PER_PASS = 3150
+    EXPECTED_PASSES = len(file_list) # Assuming each file is a pass
+
+    print(f"Checking for missing data (Assumption: {PROMPTS_PER_PASS} prompts per pass)...")
+    
+    dfs = []
+    for f in file_list:
+        if os.path.exists(f):
+            try:
+                df = pd.read_csv(f, low_memory=False)
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error reading {f}: {e}")
+        else:
+            print(f"Warning: File {f} not found.")
+
+    if not dfs:
+        print("No data loaded.")
+        return
+
+    master_df = pd.concat(dfs, ignore_index=True)
+    
+    # 1. Filter out ghost rows
+    valid_df = master_df.dropna(subset=['test_taker']).copy()
+    
+    # 2. Assign Family Helper
+    def get_model_family(test_taker_name):
+        name = str(test_taker_name).lower()
+        if any(x in name for x in ['gpt', 'o1', 'o3', 'o4']): return 'OpenAI'
+        if 'claude' in name: return 'Anthropic'
+        if 'gemini' in name: return 'Google'
+        if 'grok' in name: return 'xAI'
+        if 'deepseek' in name: return 'DeepSeek'
+        if 'llama' in name: return 'Meta'
+        return 'Other'
+
+    valid_df['Family'] = valid_df['test_taker'].apply(get_model_family)
+
+    # 3. Group and Count
+    stats = valid_df.groupby(['Family', 'test_taker']).size().reset_index(name='Total_Prompts')
+    stats['Passes'] = stats['Total_Prompts'] / PROMPTS_PER_PASS
+    stats = stats.sort_values(by=['Family', 'test_taker'])
+
+    # 4. Print Report
+    print("\n" + "="*90)
+    print(f"{'Family':<15} | {'Test-Taker':<45} | {'Prompts':<10} | {'Passes':<8}")
+    print("-" * 90)
+
+    for _, row in stats.iterrows():
+        pass_str = f"{row['Passes']:.2f}"
+        print(f"{row['Family']:<15} | {row['test_taker']:<45} | {row['Total_Prompts']:<10} | {pass_str:<8}")
+
+    print("-" * 90)
+    print(f"Total Valid Prompts: {len(valid_df)}")
+    print("="*90)
+
+    # 5. Missing Data Warning
+    threshold = EXPECTED_PASSES - 0.05 # e.g. 2.95 if 3 passes expected
+    under_counts = stats[stats['Passes'] < threshold]
+
+    if len(under_counts) > 0:
+        print(f"\n--- ATTENTION: Test-Takers with < {EXPECTED_PASSES} Full Passes ---")
+        for _, row in under_counts.iterrows():
+            missing_prompts = (PROMPTS_PER_PASS * EXPECTED_PASSES) - row['Total_Prompts']
+            print(f" > {row['test_taker']}: {row['Passes']:.2f} passes (Missing ~{int(missing_prompts)} prompts)")
+    else:
+        print(f"\nAll test-takers have ~{EXPECTED_PASSES} passes. Dataset looks complete!")
 
 def main():
     parser = argparse.ArgumentParser(description="Post-processing utilities for test-taker CSVs")
@@ -290,6 +359,10 @@ def main():
     p_jsr = sub.add_parser("jsr-report", help="Generate JSR report by model and variant")
     p_jsr.add_argument("--input", required=True, help="Input CSV (e.g., FINALPass0.csv)")
 
+    #check which test-takers are missing passes
+    p_check = sub.add_parser("check-missing", help="Check for missing prompts across passes")
+    p_check.add_argument("--files", nargs="+", required=True, help="List of CSV files to check")
+
     args = parser.parse_args()
 
     if args.cmd == "clean":
@@ -304,6 +377,8 @@ def main():
         generate_jsr_report(args.input)
     elif args.cmd == "merge-passes":
         merge_passes_csv(args.files, args.output)
+    elif args.cmd == "check-missing":
+        check_missing_passes(args.files)
 
 
 if __name__ == "__main__":

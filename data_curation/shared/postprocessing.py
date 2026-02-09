@@ -60,7 +60,7 @@ def analyze_length_quality(input_file):
         print(df[short_mask][['test_taker', 'response']].head(5))
 
 
-def merge_csvs(file_list, output_file):
+def merge_general_csvs(file_list, output_file):
     """Concatenate multiple CSVs and sort by id + test_taker."""
     dataframes = []
     print(f"Starting merge of {len(file_list)} files...")
@@ -237,7 +237,7 @@ def main():
     elif args.cmd == "analyze-length":
         analyze_length_quality(args.input)
     elif args.cmd == "merge":
-        merge_csvs(args.files, args.output)
+        merge_general_csvs(args.files, args.output)
     elif args.cmd == "count-tokens":
         count_tokens(args.input, args.encoding)
     elif args.cmd == "jsr-report":

@@ -150,6 +150,54 @@ def merge_passes_csv(file_list, output_file):
     else:
         print("\nNo valid files were loaded. Master dataset NOT created.")
 
+def split_passes_csv(input_file, offset=5):
+    """
+    Reads a merged CSV, splits it by the 'pass' column, 
+    and saves separate files (e.g., Pass 0 -> Cleaned_Pass5.csv).
+    
+    Args:
+        input_file (str): Path to the merged CSV file.
+        offset (int): Number to add to the 'pass' index for the filename.
+                      Default is 5 (so pass 1 becomes Cleaned_Pass6).
+    """
+    print(f"📂 Loading {input_file}...")
+    
+    if not os.path.exists(input_file):
+        print(f"❌ Error: {input_file} not found.")
+        return
+
+    df = pd.read_csv(input_file, low_memory=False)
+    print(f"   Loaded {len(df)} rows.")
+
+    if 'pass' not in df.columns:
+        print("❌ Error: 'pass' column not found in file.")
+        return
+
+    # Get unique pass values
+    pass_values = sorted(df['pass'].unique())
+    print(f"   Found passes: {pass_values}")
+
+    for p in pass_values:
+        # Filter for this pass
+        subset = df[df['pass'] == p].copy()
+        
+        # Remove 'pass' column (optional, based on your original script)
+        subset = subset.drop(columns=['pass'])
+        
+        # Calculate new pass number
+        try:
+            p_int = int(p)
+            new_pass_num = p_int + offset
+        except ValueError:
+            # Fallback if 'pass' is not a number
+            new_pass_num = f"{p}_{offset}"
+
+        output_name = f"Cleaned_Pass{new_pass_num}.csv"
+        
+        # Save
+        subset.to_csv(output_name, index=False)
+        print(f"   ✅ Created {output_name} ({len(subset)} rows)")
+
 def count_tokens(input_file, encoding_name="cl100k_base"):
     """Count tokens per response using tiktoken and print summary stats."""
     try:
@@ -350,6 +398,11 @@ def main():
     p_mp.add_argument("--files", nargs="+", required=True, help="List of files (Order matters: 1st=Pass1, 2nd=Pass2...)")
     p_mp.add_argument("--output", required=True, help="Output filename")
 
+    # Subcommand: split_passes_csv
+    p_split = sub.add_parser("split-passes", help="Split a merged CSV into separate pass files")
+    p_split.add_argument("--input", required=True, help="Input CSV file (e.g., merged67_complete.csv)")
+    p_split.add_argument("--offset", type=int, default=0, help="Number to add to the pass index (e.g., if pass 0 -> Pass5, use offset=5)")
+
     # Subcommand: count-tokens
     p_tokens = sub.add_parser("count-tokens", help="Count tokens per response")
     p_tokens.add_argument("--input", required=True, help="Input CSV")
@@ -371,6 +424,8 @@ def main():
         analyze_length_quality(args.input)
     elif args.cmd == "merge":
         merge_general_csvs(args.files, args.output)
+    elif args.cmd == "split":
+        split_passes_csv(args.input, args.offset)
     elif args.cmd == "count-tokens":
         count_tokens(args.input, args.encoding)
     elif args.cmd == "jsr-report":

@@ -16,7 +16,7 @@ import seaborn as sns
 from huggingface_hub import snapshot_download
 
 DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
-INPUT_FILE = os.path.join(DATA_DIR, "FINALMERGEDTAGGED.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Final_Passes0-9_Merged_Graded_Tagged.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 OUTPUT_SCREE_PLOT = os.path.join(RESULTS_DIR, "efa_scree_plot_likert.png")

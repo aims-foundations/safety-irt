@@ -11,7 +11,7 @@ source venv_safety_irt/bin/activate
 pip install -q -r requirements.txt
 
 # 2. Run analyses (data is downloaded from HuggingFace automatically)
-python model/efa.py
+# python model/efa.py
 python model/irt.py
 
 echo "Done. Results saved to model/results/"

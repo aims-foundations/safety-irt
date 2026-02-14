@@ -12,6 +12,8 @@ pip install -q -r requirements.txt
 
 # 2. Run analyses (data is downloaded from HuggingFace automatically)
 # python model/efa.py
-python model/irt.py
+# python model/irt.py
+python model/embedding_analysis_translation_v_DIF.py
+python model/embedding_analysis_translation_v_safety.py
 
 echo "Done. Results saved to model/results/"

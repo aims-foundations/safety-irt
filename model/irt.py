@@ -41,8 +41,15 @@ def model(student_idx, prompt_idx, lang_idx, obs=None,
     gamma = pyro.deterministic("gamma", gamma_raw * gamma_mask)
 
     tau_scale = pyro.sample("tau_scale", dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
+    
+    #sparsity (Heavy-tailed prior)
     tau_raw = pyro.sample("tau_raw", dist.StudentT(1.0, torch.zeros(num_prompts, num_langs, device=device), tau_scale).to_event(2))
+    
+    #sparsity (Sparse/Lasso prior)
+    #tau_raw = pyro.sample("tau_raw", dist.Laplace(torch.zeros(num_prompts, num_langs, device=device), tau_scale).to_event(2))
+    
     tau = pyro.deterministic("tau", tau_raw * tau_mask)
+    
 
     delta_raw = pyro.sample("delta_raw", dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5).to_event(2))
     delta_mask = gamma_mask.unsqueeze(0).expand(num_students, -1)

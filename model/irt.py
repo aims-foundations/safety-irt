@@ -18,7 +18,7 @@ import os
 from huggingface_hub import snapshot_download
 
 DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
-INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Final_Passes0-9_Merged_Graded_Tagged.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
 ANCHOR_FILE = os.path.join(DATA_DIR,"anchors", "anchors.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -221,7 +221,13 @@ def plot_results():
     n_langs = len(target_langs)
 
     nrows, ncols = 3, 3
-    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows), sharex=True, sharey=True)
+
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=(6 * ncols, 7 * nrows),
+        sharex=True,
+        sharey=True
+    )
     axes = axes.flatten()
 
     min_val = min(res_df["Base_Difficulty"].min(), res_df["Lang_Difficulty"].min())
@@ -236,12 +242,16 @@ def plot_results():
         anchors = lang_data[lang_data["Is_Anchor"]]
         non_anchors = lang_data[~lang_data["Is_Anchor"]]
 
-        sns.scatterplot(data=non_anchors, x="Base_Difficulty", y="Lang_Difficulty",
-                        ax=ax, alpha=0.5, color=palette[i % 10], label="Normal")
+        sns.scatterplot(
+            data=non_anchors, x="Base_Difficulty", y="Lang_Difficulty",
+            ax=ax, alpha=0.5, color=palette[i % 10], label="Normal"
+        )
 
         if not anchors.empty:
-            sns.scatterplot(data=anchors, x="Base_Difficulty", y="Lang_Difficulty",
-                            ax=ax, color="black", marker="*", s=100, label="Anchor")
+            sns.scatterplot(
+                data=anchors, x="Base_Difficulty", y="Lang_Difficulty",
+                ax=ax, color="black", marker="*", s=100, label="Anchor"
+            )
 
         ax.plot([min_val, max_val], [min_val, max_val], "r--", label="Equal Difficulty")
 
@@ -250,14 +260,15 @@ def plot_results():
         ax.set_xlabel(r"English Difficulty ($\beta_i$)")
         ax.set_ylabel("Target Difficulty")
         ax.grid(True, alpha=0.3)
-        ax.legend()
+        ax.legend(fontsize=8, loc="upper left")
 
     for j in range(n_langs, nrows * ncols):
         axes[j].set_visible(False)
 
-    plt.suptitle("Bayesian Safety Cost (Binary Model)", fontsize=16)
-    plt.tight_layout()
-    plt.savefig(SAVE_PLOT_FILE, dpi=300)
+    fig.suptitle("Bayesian Safety Cost (Binary Model)", fontsize=18, fontweight="bold", y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+    plt.savefig(SAVE_PLOT_FILE, dpi=300, bbox_inches="tight")
     print(f"Plot saved to '{SAVE_PLOT_FILE}'")
 
 

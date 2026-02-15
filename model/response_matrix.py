@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 
+"""
+bash
+Downgrade to the latest NumPy 1.x version
+pip install "numpy<2"
+"""
+
 """Creates a response matrix of the graded passes from the test-takers. Consists of a matrix colored blue for Safe responses, red for Unsafe, and white for Invalid. The code loops through all of the individual passes to create a response matrix for each pass."""
 
 import pandas as pd

@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """
+bash
+Downgrade to the latest NumPy 1.x version
+pip install "numpy<2"
+"""
+
+"""
 Binary IRT model with anchoring constraints for multilingual safety analysis.
 Uses Pyro for Bayesian inference via SVI.
 """

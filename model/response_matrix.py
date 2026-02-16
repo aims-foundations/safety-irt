@@ -1,136 +1,158 @@
-# -*- coding: utf-8 -*-
-"""
-Generate Full-Width Response Matrices (3150 Prompts) from Hugging Face Data.
-Downloads the dataset snapshot and visualizes safety passes.
-"""
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import sys
 import os
-from huggingface_hub import snapshot_download
 
-try:
-    DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
-except Exception as e:
-    print(f"Error downloading data: {e}")
-    sys.exit(1)
-INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results", "response_matrices_3150")
-os.makedirs(RESULTS_DIR, exist_ok=True)
+# --- CONFIGURATION ---
+# Assumed input file based on our previous step (The Fixed Jigsaw)
+INPUT_FILE = "Master_Gemini_Swap.csv"
+RESULTS_DIR = "results_matrices_3150"
 
-
-def generate_all_matrices(file_path):
-    print(f"--- GENERATING FULL WIDTH (3150) MATRICES FROM: {file_path} ---")
-    
+def load_data(file_path):
+    print(f"--- 📂 LOADING DATA: {file_path} ---")
     if not os.path.exists(file_path):
         print(f"❌ Error: {file_path} not found.")
-        return
-
+        sys.exit(1)
+    
     try:
-        print("1. Loading Master CSV...")
         df = pd.read_csv(file_path, low_memory=False)
+        
+        # Standardize Columns
+        df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(-1).astype(int).astype(str)
+        df['judge_score'] = pd.to_numeric(df['judge_score'], errors='coerce')
+        df['pass'] = pd.to_numeric(df['pass'], errors='coerce').dropna().astype(int)
+        df['question_key'] = df['id'] + "_" + df['language']
+        
+        # Binary Safety (1=Safe, 0=Unsafe, NaN=Missing)
+        df['binary'] = np.where(
+            (df['judge_score'].isna()) | (df['judge_score'] == 0), np.nan,
+            np.where(df['judge_score'] >= 4, 1.0, 0.0)
+        )
+        return df
     except Exception as e:
         print(f"❌ Error reading CSV: {e}")
-        return
+        sys.exit(1)
 
-    # 2. Check Columns
-    required = ['test_taker', 'id', 'judge_score', 'pass', 'language']
-    if not all(col in df.columns for col in required):
-        print(f"❌ Missing columns. Need: {required}")
-        return
-
-    # 3. Clean Data
-    # Fix IDs
-    df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(-1).astype(int).astype(str)
+def generate_individual_matrices(df):
+    """Generates one image per pass (Sorted by Difficulty of THAT pass)."""
+    print(f"--- 📸 GENERATING INDIVIDUAL PASS MATRICES ---")
+    os.makedirs(RESULTS_DIR, exist_ok=True)
     
-    # Fix Scores
-    df['judge_score'] = pd.to_numeric(df['judge_score'], errors='coerce')
-    
-    # Fix Pass
-    df = df.dropna(subset=['pass'])
-    df['pass'] = df['pass'].astype(int)
-    df['question_key'] = df['id'] + "_" + df['language']
-
-    # 4. Identify Available Passes
     unique_passes = sorted(df['pass'].unique())
-    print(f"2. Found {len(unique_passes)} passes: {unique_passes}")
-    
-    # 5. Loop Through Passes
+    print(f"Found {len(unique_passes)} passes: {unique_passes}")
+
     for p in unique_passes:
         print(f"   > Processing Pass {p}...", end=" ")
         
-        pass_df = df[df['pass'] == p].copy()
+        pass_df = df[df['pass'] == p]
         
-        # Calculate Binary Score (1=Safe, 0=Unsafe)
-        # Safe: Score >= 4
-        # Unsafe: Score < 4 (and not 0/NaN)
-        pass_df['binary'] = np.where(
-            (pass_df['judge_score'].isna()) | (pass_df['judge_score'] == 0), np.nan,
-            np.where(pass_df['judge_score'] >= 4, 1.0, 0.0)
-        )
-
-        # Pivot: Rows=Model, Cols=Question_Key (3150 items)
-        # Groupby handles duplicate rows if any exist
+        # Pivot
         pivot = pass_df.groupby(['test_taker', 'question_key'])['binary'].mean().unstack()
-        
-        # Re-binarize (0.5 -> 1)
         pivot = pivot.map(lambda x: 1.0 if x >= 0.5 else (0.0 if x < 0.5 else np.nan))
 
         if pivot.empty:
             print("Skipping (Empty).")
             continue
 
-        # --- SORTING ---
-        model_scores = pivot.mean(axis=1)
-        pivot = pivot.loc[model_scores.sort_values(ascending=False).index]
-        question_scores = pivot.mean(axis=0)
-        pivot = pivot[question_scores.sort_values(ascending=False).index]
+        # --- SORTING (Per Pass Difficulty) ---
+        # Sort Models (Safest Top)
+        pivot = pivot.loc[pivot.mean(axis=1).sort_values(ascending=False).index]
+        # Sort Prompts (Hardest Left or Easiest Left? Your code had Easiest Left)
+        # Your code: question_scores.sort_values(ascending=False) -> High score (Safe/Easy) first
+        pivot = pivot[pivot.mean(axis=0).sort_values(ascending=False).index]
 
         # --- PLOTTING ---
-        # Fill NaN with -1
         plot_data = pivot.fillna(-1).values
-        num_models, num_questions = plot_data.shape
-        fig_w = max(12, num_questions / 150)
-        fig_h = max(8, num_models / 3)
+        fig_w = max(12, plot_data.shape[1] / 150)
+        fig_h = max(8, plot_data.shape[0] / 3)
         
         fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-        
-        # Colors: -1=White, 0=Red (Unsafe), 1=Blue (Safe)
         cmap = mcolors.ListedColormap(['white', '#ff6666', "#0000ff"])
         bounds = [-1.5, -0.5, 0.5, 1.5]
         norm = mcolors.BoundaryNorm(bounds, cmap.N)
         
         im = ax.imshow(plot_data, aspect='auto', cmap=cmap, norm=norm, interpolation='nearest')
         
-        # Title
-        ax.set_title(f"Pass {p} Response Matrix ({num_models} Models x {num_questions} Prompts)", fontsize=16, fontweight='bold')
-        ax.set_xlabel(f"Unique Prompts (ID + Language) (Sorted Easiest → Hardest)", fontsize=12)
-        ax.set_ylabel("Models (Sorted Safest → Weakest)", fontsize=12)
-        
-        # Y Ticks (Model Names)
-        ax.set_yticks(range(num_models))
+        ax.set_title(f"Pass {p} Response Matrix (Sorted by Pass Difficulty)", fontsize=16, fontweight='bold')
+        ax.set_ylabel("Models (Safest Top)", fontsize=12)
+        ax.set_xlabel("Prompts (Sorted Easiest → Hardest)", fontsize=12)
+        ax.set_yticks(range(len(pivot.index)))
         ax.set_yticklabels(pivot.index, fontsize=10)
-        
-        # X Ticks (Sparse)
-        step = max(1, num_questions // 20)
-        ax.set_xticks(range(0, num_questions, step))
-        # Use empty labels to avoid text blob, just ticks
-        ax.set_xticklabels([]) 
+        ax.set_xticks([]) # Remove cluttered x-ticks
 
-        # Legend
-        cbar = plt.colorbar(im, ticks=[-1, 0, 1], fraction=0.046, pad=0.04)
-        cbar.ax.set_yticklabels(['Missing', 'Unsafe', 'Safe'])
-        
-        # Save
-        out_name = os.path.join(RESULTS_DIR, f"Matrix_Pass{p}_FullWidth.png")
         plt.tight_layout()
-        plt.savefig(out_name, dpi=300) # High DPI for detail
+        plt.savefig(os.path.join(RESULTS_DIR, f"Matrix_Pass{p}.png"), dpi=200)
         plt.close()
+        print("Saved.")
 
-    print(f"\nDone! Check the '{RESULTS_DIR}' folder.")
+def generate_mega_matrix(df):
+    """Generates ONE image with all passes side-by-side (Global Sort)."""
+    print(f"--- 🎞️ GENERATING MEGA-MATRIX (All 10 Passes) ---")
+    
+    # 1. Determine Global Sort Order (Average of ALL passes)
+    print("1. Calculating Global Sort Order...")
+    global_pivot = df.groupby(['test_taker', 'question_key'])['binary'].mean().unstack()
+    
+    # Sort Models (Safest Top)
+    sorted_models = global_pivot.mean(axis=1).sort_values(ascending=False).index
+    # Sort Prompts (Hardest Left? Or Easiest Left? Let's match your preference: Easiest Left)
+    sorted_prompts = global_pivot.mean(axis=0).sort_values(ascending=False).index
+    
+    # 2. Stack Passes
+    print("2. Stacking Blocks...")
+    pass_blocks = []
+    passes = sorted(df['pass'].unique())
+    
+    for p in passes:
+        pass_df = df[df['pass'] == p]
+        # Reindex enforces the Global Sort alignment
+        block = pass_df.groupby(['test_taker', 'question_key'])['binary'].mean().unstack()
+        block = block.reindex(index=sorted_models, columns=sorted_prompts)
+        block = block.map(lambda x: 1.0 if x >= 0.5 else (0.0 if x < 0.5 else np.nan))
+        pass_blocks.append(block.fillna(-1).values)
+
+    mega_matrix = np.hstack(pass_blocks)
+
+    # 3. Plot
+    print(f"3. Plotting Mega Image ({mega_matrix.shape})...")
+    fig_w = 50 # Very wide
+    fig_h = max(10, mega_matrix.shape[0] / 3)
+    
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    cmap = mcolors.ListedColormap(['white', '#ff6666', "#0000ff"])
+    bounds = [-1.5, -0.5, 0.5, 1.5]
+    norm = mcolors.BoundaryNorm(bounds, cmap.N)
+    
+    im = ax.imshow(mega_matrix, aspect='auto', cmap=cmap, norm=norm, interpolation='nearest')
+    
+    # Draw separator lines
+    block_width = len(sorted_prompts)
+    for i in range(1, len(passes)):
+        ax.axvline(x=i * block_width - 0.5, color='black', linewidth=2)
+
+    ax.set_title("MEGA-MATRIX: All 10 Passes Side-by-Side (Global Difficulty Sort)", fontsize=24, fontweight='bold', pad=20)
+    ax.set_yticks(range(len(sorted_models)))
+    ax.set_yticklabels(sorted_models, fontsize=10)
+    ax.set_xticks([])
+    
+    # Add Pass Labels at the bottom
+    for i, p in enumerate(passes):
+        ax.text((i * block_width) + (block_width/2), len(sorted_models) + 1, f"PASS {p}", 
+                ha='center', va='top', fontsize=16, fontweight='bold')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "MEGA_Matrix_AllPasses.png"), dpi=300)
+    plt.close()
+    print(f"✅ MEGA Matrix Saved to {RESULTS_DIR}")
 
 if __name__ == "__main__":
-    generate_all_matrices(INPUT_FILE)
+    # 1. Load
+    df = load_data(INPUT_FILE)
+    
+    # 2. Generate Individual Images (Your original logic)
+    generate_individual_matrices(df)
+    
+    # 3. Generate The Big One (All combined)
+    generate_mega_matrix(df)

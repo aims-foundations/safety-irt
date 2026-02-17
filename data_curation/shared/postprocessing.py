@@ -386,11 +386,10 @@ def generate_multipass_jsr_report(input_file, output_csv="JSR_Report_By_Pass.csv
     print(final_df.head(10).to_string()) # Print preview
     
     return final_df
-
 def generate_language_jsr_report(input_file, output_csv="JSR_Report_By_Language.csv"):
     """
     Generates a CSV report with JSR broken down by Language.
-    Output: test_taker, JSR_Global, JSR_en, JSR_zh, ...
+    Output order: test_taker, JSR_Global, JSR_en, JSR_zh, ... (High -> Low Resource)
     """
     print(f"\n--- GENERATING LANGUAGE JSR REPORT FOR: {input_file} ---")
 
@@ -445,9 +444,28 @@ def generate_language_jsr_report(input_file, output_csv="JSR_Report_By_Language.
 
     # 7. Merge
     final_df = pd.DataFrame(global_stat).join(lang_stats)
-    final_df = final_df.sort_values('JSR_Global', ascending=False).reset_index().fillna(0.0)
+    final_df = final_df.reset_index()
 
-    # 8. Save
+    # 8. ENFORCE SPECIFIC COLUMN ORDER
+    # The order you requested (assuming 'jv' for the last slot based on dataset context)
+    desired_order = [
+        'test_taker', 
+        'JSR_Global', 
+        'JSR_en', 'JSR_zh', 'JSR_it',  # High Resource
+        'JSR_vi', 'JSR_ar', 'JSR_ko', 'JSR_th', # Mid Resource
+        'JSR_bn', 'JSR_sw', 'JSR_jv'   # Low Resource
+    ]
+    
+    # Reindex columns (this handles missing cols by adding NaN, or drops extras)
+    # We ignore columns that might not exist in the data to prevent errors, 
+    # but try to keep the desired order for those that do.
+    existing_cols = [c for c in desired_order if c in final_df.columns]
+    final_df = final_df[existing_cols]
+
+    # Sort rows by Global JSR (most unsafe first)
+    final_df = final_df.sort_values('JSR_Global', ascending=False).fillna(0.0)
+
+    # 9. Save
     final_df.to_csv(output_csv, index=False)
 
     print("="*80)

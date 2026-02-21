@@ -1,19 +1,25 @@
-#!/bin/bash
-# Usage: ./reproduce.sh
-# Reproduces the EFA and IRT analysis from the paper.
-
-set -e
+#!/usr/bin/env bash
+chmod +x reproduce/*.sh 2>/dev/null || true
+set -euo pipefail
 cd "$(dirname "$0")"
 
-# 1. Setup virtual environment and install dependencies
-python3 -m venv venv_safety_irt
-source venv_safety_irt/bin/activate
-pip install -q -r requirements.txt
+task="${1:-all}"
 
-# 2. Run analyses (data is downloaded from HuggingFace automatically)
-python model/efa.py
-python model/irt.py
-python model/embedding_analysis_translation_v_DIF.py
-python model/embedding_analysis_translation_v_safety.py
+case "$task" in
+  all)
+    ./reproduce/0_env.sh
+    ./reproduce/1_efa_irt.sh
+    ./reproduce/2_embedding.sh
+    ./reproduce/3_validations.sh
+    ;;
+  env)          ./reproduce/0_env.sh ;;
+  core)         ./reproduce/0_env.sh && ./reproduce/1_efa_irt.sh ;;
+  embedding)    ./reproduce/0_env.sh && ./reproduce/2_embedding.sh ;;
+  validations)  ./reproduce/0_env.sh && ./reproduce/3_validations.sh ;;
+  *)
+    echo "Usage: $0 {all|env|core|embedding|validations}"
+    exit 1
+    ;;
+esac
 
 echo "Done. Results saved to model/results/"

@@ -32,11 +32,13 @@ pip install -r requirements.txt
 
 # Reproduce full pipeline (data auto-downloads from HuggingFace)
 chmod +x reproduce.sh
-./reproduce.sh
+./reproduce.sh all
+./reproduce.sh core # efa / irt analysis
+./reproduce.sh embedding # embedding analysis
+./reproduce.sh validations # irt_validations analysis
 ```
 
 ## Repository Structure
-
 ```
 safety-irt/
 ├── model/                     # IRT + EFA model fitting
@@ -44,6 +46,11 @@ safety-irt/
 │   ├── efa.py                 # Exploratory Factor Analysis + JSR heatmap
 │   ├── anchors.py             # Anchor prompt selection utilities
 │   └── results/               # Saved model params, plots, CSVs
+│
+├── irt_validations/           # Post-estimation validation experiments
+│   ├── model_selection/       # Experiment A: 1PL vs 2PL vs GRM; AIC/BIC; item/person fit
+│   ├── reliability/           # Experiment B: split-half, pass-to-pass τ stability, ICC
+│   └── predictive_validation/ # Experiment D: LOFO, LOLO, random CV; τ ablation; baselines
 │
 ├── data_curation/             # Data collection, grading, and ablation pipelines
 │   ├── test_takers.py         # Collect model responses: --config gpt|gemini|claude_3|...

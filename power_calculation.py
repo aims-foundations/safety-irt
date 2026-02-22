@@ -1,6 +1,4 @@
 import sys
-!{sys.executable} -m pip install pandas matplotlib seaborn scikit-learn
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt

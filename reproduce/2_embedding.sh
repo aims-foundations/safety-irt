@@ -3,8 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source venv_safety_irt/bin/activate
 
-python model/embedding_analysis_translation_v_DIF_LaBSE.py
-python model/embedding_analysis_translation_v_safety_LaBSE.py
+pip install "unbabel-comet==2.2.7" "setuptools<81" "numpy>=1.26,<2" --quiet
 
-python model/embedding_analysis_translation_v_DIF_COMET.py
-python model/embedding_analysis_translation_v_safety_COMET.py
+python huggingface_login.py
+python model/embedding_analysis_translation_v_CSG.py
+python model/embedding_analysis_translation_v_safety.py

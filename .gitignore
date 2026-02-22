@@ -11,6 +11,16 @@ venv*/
 .env
 .hf_cache/
 
+# Python virtual environments
+venv/
+myenv/
+.venv/
+env/
+
+# Python caches
+__pycache__/
+*.pyc
+
 # Jupyter (notebooks converted to .py)
 .ipynb_checkpoints/
 *.ipynb

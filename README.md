@@ -32,18 +32,36 @@ pip install -r requirements.txt
 
 # Reproduce full pipeline (data auto-downloads from HuggingFace)
 chmod +x reproduce.sh
-./reproduce.sh
+./reproduce.sh all
+./reproduce.sh core # efa / irt analysis
+./reproduce.sh embedding # embedding analysis
+./reproduce.sh validations # irt_validations analysis
 ```
 
 ## Repository Structure
-
 ```
 safety-irt/
 ├── model/                     # IRT + EFA model fitting
-│   ├── irt.py                 # Binary IRT with anchoring constraints (Pyro SVI)
+│   ├── irt.py                 # 2PL Binary IRT with anchoring constraints (Pyro SVI)
 │   ├── efa.py                 # Exploratory Factor Analysis + JSR heatmap
 │   ├── anchors.py             # Anchor prompt selection utilities
 │   └── results/               # Saved model params, plots, CSVs
+|   └── embedding_analysis_translation_v_CSG.py   #Translation quality verus cross-lingual safety gap
+|   └── embedding_analysis_translation_v_safety.py   #Translation quality verus safety
+│
+├── irt_validations/           # Post-estimation validation and analysis experiments
+│   ├── A_model-selection.py   # Experiment A: 1PL vs 2PL vs GRM; AIC/BIC; item/person fit
+│   ├── B_variable-reliability_2PL.py  # Experiment B (2PL): split-half, ICC, τ stability
+│   ├── D_predictive-validation_2PL.py # Experiment D (2PL): LOFO, LOLO, CV; τ ablation
+│   ├── jsr_difficulty.py      # Post-hoc JSR vs θ and JSR_lang vs (θ+δ) analysis
+│   ├── jsr_irt_analysis.py    # Rank divergence: RMSRD, QWK, top movers, heatmaps
+│   ├── jsr_irt_ordering.py    # Ability heatmaps: JSR vs (θ+δ), English focus, rank Δ
+│   ├── results_experiment_A/  # Model selection outputs
+│   ├── results_experiment_B/  # Reliability outputs
+│   ├── results_experiment_D/  # Predictive validation outputs
+│   ├── results_jsr_theta_posthoc/  # JSR vs θ scatter plots, correlation CSVs
+│   ├── results_rank_divergence/    # Divergence metrics, top movers, family heatmaps
+│   └── results_ability_heatmaps/   # Dual heatmaps, English focus, rank discrepancy
 │
 ├── data_curation/             # Data collection, grading, and ablation pipelines
 │   ├── test_takers.py         # Collect model responses: --config gpt|gemini|claude_3|...

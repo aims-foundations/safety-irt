@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-bash
-Downgrade to the latest NumPy 1.x version
-pip install "numpy<2"
-"""
-
-"""
-Binary IRT model with anchoring constraints for multilingual safety analysis.
+2PL Binary IRT model with anchoring constraints for multilingual safety analysis.
 Uses Pyro for Bayesian inference via SVI.
+
+Implements: P(safe_ijL = 1) = σ(α_i · ((θ_j + δ_jL) − (β_i + γ_L + τ_iL)))
+
+where α_i is per-prompt discrimination (how sharply the item separates safe/unsafe models).
 """
 
 import torch
@@ -25,10 +23,10 @@ from huggingface_hub import snapshot_download
 
 DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
-ANCHOR_FILE = os.path.join(DATA_DIR,"anchors", "anchors.csv")
+ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
-SAVE_MODEL_FILE = os.path.join(RESULTS_DIR, "irt_params_binary_final.pt")
+SAVE_MODEL_FILE = os.path.join(RESULTS_DIR, "irt_params_binary_2pl.pt")
 SAVE_RESULTS_FILE = os.path.join(RESULTS_DIR, "bayesian_irt_results_binary.csv")
 SAVE_PLOT_FILE = os.path.join(RESULTS_DIR, "0_bayesian_irt_plots_binary.png")
 TRAINING_STEPS = 4000
@@ -36,35 +34,63 @@ TRAINING_STEPS = 4000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def model(student_idx, prompt_idx, lang_idx, obs=None,
-          num_students=None, num_prompts=None, num_langs=None,
-          tau_mask=None, gamma_mask=None):
-    """Bayesian IRT Model (Binary/Bernoulli)."""
-    theta = pyro.sample("theta", dist.Normal(torch.zeros(num_students, device=device), 1.0).to_event(1))
-    beta = pyro.sample("beta", dist.Normal(torch.zeros(num_prompts, device=device), 1.0).to_event(1))
+def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
+              num_students=None, num_prompts=None, num_langs=None,
+              tau_mask=None, gamma_mask=None):
+    """
+    Bayesian 2PL IRT Model (Binary/Bernoulli).
+    
+    P(safe) = σ(α_i · ((θ_j + δ_jL) − (β_i + γ_L + τ_iL)))
+    
+    α_i ~ LogNormal(0.5, 0.5)  — per-item discrimination, constrained positive
+    θ_j ~ Normal(0, 1)         — model safety ability
+    β_i ~ Normal(0, 1)         — base prompt difficulty (English)
+    γ_L ~ Normal(0, 1)         — global language shift (English = 0)
+    τ_iL ~ StudentT(1, 0, s)   — cross-lingual safety gap (sparse, English = 0, anchors = 0)
+    δ_jL ~ Normal(0, 0.5)      — model-language aptitude (English = 0)
+    """
+    # --- Person parameters ---
+    theta = pyro.sample("theta",
+        dist.Normal(torch.zeros(num_students, device=device), 1.0).to_event(1))
 
-    gamma_raw = pyro.sample("gamma_raw", dist.Normal(torch.zeros(num_langs, device=device), 1.0).to_event(1))
+    # --- Item parameters ---
+    beta = pyro.sample("beta",
+        dist.Normal(torch.zeros(num_prompts, device=device), 1.0).to_event(1))
+
+    # α_i: per-item discrimination (must be positive)
+    # LogNormal(0.5, 0.5) gives mean ≈ 2.0, consistent with paper's reported mean α = 2.64
+    alpha = pyro.sample("alpha",
+        dist.LogNormal(0.5 * torch.ones(num_prompts, device=device),
+                       0.5 * torch.ones(num_prompts, device=device)).to_event(1))
+
+    # --- Language parameters ---
+    gamma_raw = pyro.sample("gamma_raw",
+        dist.Normal(torch.zeros(num_langs, device=device), 1.0).to_event(1))
     gamma = pyro.deterministic("gamma", gamma_raw * gamma_mask)
 
-    tau_scale = pyro.sample("tau_scale", dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
-    
-    #sparsity (Heavy-tailed prior)
-    tau_raw = pyro.sample("tau_raw", dist.StudentT(1.0, torch.zeros(num_prompts, num_langs, device=device), tau_scale).to_event(2))
-    
-    #sparsity (Sparse/Lasso prior)
-    #tau_raw = pyro.sample("tau_raw", dist.Laplace(torch.zeros(num_prompts, num_langs, device=device), tau_scale).to_event(2))
-    
-    tau = pyro.deterministic("tau", tau_raw * tau_mask)
-    
+    # --- Cross-lingual safety gap (sparse) ---
+    tau_scale = pyro.sample("tau_scale",
+        dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
 
-    delta_raw = pyro.sample("delta_raw", dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5).to_event(2))
+    # Heavy-tailed prior for sparsity
+    tau_raw = pyro.sample("tau_raw",
+        dist.StudentT(1.0,
+                      torch.zeros(num_prompts, num_langs, device=device),
+                      tau_scale).to_event(2))
+    tau = pyro.deterministic("tau", tau_raw * tau_mask)
+
+    # --- Model-language aptitude ---
+    delta_raw = pyro.sample("delta_raw",
+        dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5).to_event(2))
     delta_mask = gamma_mask.unsqueeze(0).expand(num_students, -1)
     delta = pyro.deterministic("delta", delta_raw * delta_mask)
 
+    # --- Likelihood ---
     with pyro.plate("data", len(student_idx)):
         ability = theta[student_idx] + delta[student_idx, lang_idx]
         difficulty = beta[prompt_idx] + gamma[lang_idx] + tau[prompt_idx, lang_idx]
-        logits = ability - difficulty
+        # 2PL: multiply by item discrimination
+        logits = alpha[prompt_idx] * (ability - difficulty)
         pyro.sample("obs", dist.Bernoulli(logits=logits), obs=obs)
 
 
@@ -76,7 +102,7 @@ def clean_id(x):
 
 
 def train_and_extract():
-    print(f"Starting binary IRT training on {device}...")
+    print(f"Starting 2PL binary IRT training on {device}...")
 
     if not os.path.exists(INPUT_FILE):
         raise FileNotFoundError(f"'{INPUT_FILE}' not found")
@@ -145,16 +171,17 @@ def train_and_extract():
         print(f"Warning: '{ANCHOR_FILE}' not found, only English constraints applied")
 
     # Training
-    guide = pyro.infer.autoguide.AutoNormal(pyro.poutine.block(model, hide=["obs", "tau", "gamma", "delta"]))
+    guide = pyro.infer.autoguide.AutoNormal(
+        pyro.poutine.block(model_2pl, hide=["obs", "tau", "gamma", "delta"]))
     optimizer = ClippedAdam({"lr": 0.01, "clip_norm": 10.0})
-    svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+    svi = SVI(model_2pl, guide, optimizer, loss=Trace_ELBO())
 
     if os.path.exists(SAVE_MODEL_FILE):
         print(f"Loading saved model from '{SAVE_MODEL_FILE}'")
         saved_params = torch.load(SAVE_MODEL_FILE, weights_only=False)
         pyro.get_param_store().set_state(saved_params)
     else:
-        print(f"Training for {TRAINING_STEPS} steps...")
+        print(f"Training 2PL model for {TRAINING_STEPS} steps...")
         pbar = tqdm(range(TRAINING_STEPS))
         losses = []
 
@@ -173,36 +200,50 @@ def train_and_extract():
         if len(losses) > 50:
             ma = np.convolve(losses, np.ones(50)/50, mode='valid')
             plt.plot(range(49, len(losses)), ma, color='red', label='Smoothed')
-        plt.title("Binary IRT Training Convergence")
+        plt.title("2PL Binary IRT Training Convergence")
         plt.legend()
         plt.savefig(os.path.join(RESULTS_DIR, "training_convergence.png"))
 
     # Extract results
     print("Sampling posterior...")
-    predictive = Predictive(model, guide=guide, num_samples=500, return_sites=["beta", "gamma", "tau"])
+    predictive = Predictive(model_2pl, guide=guide, num_samples=500,
+                            return_sites=["beta", "gamma", "tau", "alpha"])
     samples = predictive(student_idx, prompt_idx, lang_idx, None,
                          num_students, num_prompts, num_langs, tau_mask, gamma_mask)
 
     mean_beta = samples['beta'].mean(dim=0).detach().cpu().numpy().reshape(-1)
     mean_gamma = samples['gamma'].mean(dim=0).detach().cpu().numpy().reshape(-1)
     mean_tau = samples['tau'].mean(dim=0).detach().cpu().numpy()
-    if mean_tau.ndim > 2: mean_tau = mean_tau.squeeze()
+    mean_alpha = samples['alpha'].mean(dim=0).detach().cpu().numpy().reshape(-1)
+    if mean_tau.ndim > 2:
+        mean_tau = mean_tau.squeeze()
+
+    # Report discrimination stats
+    print(f"\n--- 2PL Discrimination (α) Summary ---")
+    print(f"  Mean α:   {mean_alpha.mean():.3f}")
+    print(f"  Median α: {np.median(mean_alpha):.3f}")
+    print(f"  Std α:    {mean_alpha.std():.3f}")
+    print(f"  Range:    [{mean_alpha.min():.3f}, {mean_alpha.max():.3f}]")
 
     results = []
     en_idx = lang_map.get('en', -1)
 
     if en_idx != -1:
         for l_name, l_idx in lang_map.items():
-            if l_name == 'en': continue
-            if l_idx >= len(mean_gamma): continue
+            if l_name == 'en':
+                continue
+            if l_idx >= len(mean_gamma):
+                continue
 
             for p_idx, p_name in enumerate(prompts):
-                if p_idx >= len(mean_beta): break
+                if p_idx >= len(mean_beta):
+                    break
 
                 base_diff = mean_beta[p_idx]
                 trans_cost = mean_tau[p_idx, l_idx]
                 lang_diff = base_diff + mean_gamma[l_idx] + trans_cost
                 is_anchor = (tau_mask[p_idx, l_idx].item() == 0.0)
+                discrimination = mean_alpha[p_idx]
 
                 results.append({
                     'prompt': p_name,
@@ -210,7 +251,8 @@ def train_and_extract():
                     'Base_Difficulty': base_diff,
                     'Lang_Difficulty': lang_diff,
                     'Safety_Tax': trans_cost,
-                    'Is_Anchor': is_anchor
+                    'Is_Anchor': is_anchor,
+                    'alpha': discrimination,
                 })
 
     res_df = pd.DataFrame(results)
@@ -271,7 +313,7 @@ def plot_results():
     for j in range(n_langs, nrows * ncols):
         axes[j].set_visible(False)
 
-    fig.suptitle("Bayesian Safety Cost (Binary Model)", fontsize=18, fontweight="bold", y=0.995)
+    fig.suptitle("Bayesian Safety Cost (2PL Binary Model)", fontsize=18, fontweight="bold", y=0.995)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
 
     plt.savefig(SAVE_PLOT_FILE, dpi=300, bbox_inches="tight")

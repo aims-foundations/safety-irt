@@ -29,6 +29,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
+# ── fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
+
 from scipy.stats import ttest_1samp, wilcoxon
 import os
 import re
@@ -58,6 +72,10 @@ FAM_COLORS = {
     'Other':    '#95a5a6',
 }
 FAM_ORDER = ['Claude', 'DeepSeek', 'Gemini', 'GPT', 'Grok', 'Other']
+
+_c1 = C_BLUE if _HAS_FIG_STYLE else '#2471a3'
+_c2 = C_RED if _HAS_FIG_STYLE else '#c0392b'
+_c3 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98'
 
 
 def get_model_family(name):
@@ -149,9 +167,8 @@ def load_and_compute_delta():
 
 def plot_family_delta_heatmap(df):
     """
-    The H1 test: if δ is systematically negative for low-resource
-    languages across families, models genuinely struggle more there
-    (not just harder prompts).
+    H1 Test rendered as a horizontal row.
+    Columns = Language, Rows = Family. Colorbar moved to bottom.
     """
     pivot = df.pivot_table(index='family', columns='language',
                            values='delta', aggfunc='mean')
@@ -159,26 +176,29 @@ def plot_family_delta_heatmap(df):
     present_fams = [f for f in FAM_ORDER if f in pivot.index]
     pivot = pivot.reindex(index=present_fams, columns=present_langs)
 
-    fig, ax = plt.subplots(figsize=(len(present_langs) * 1.0 + 2,
-                                    len(present_fams) * 0.7 + 1))
+    fig_width = len(present_langs) * 1.0 + 2
+    fig_height = len(present_fams) * 0.5 + 1.5
+    
+    # FIX: Initialize tight layout here instead of calling plt.tight_layout() later
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), layout='tight')
 
     vmax = max(abs(pivot.values.min()), abs(pivot.values.max()), 0.1)
+    
     sns.heatmap(pivot, cmap='RdBu', center=0, vmin=-vmax, vmax=vmax,
                 annot=True, fmt='.3f', linewidths=1, linecolor='white',
                 cbar_kws={'label': 'Mean δ (model-language aptitude)',
-                          'shrink': 0.8},
+                          'orientation': 'horizontal', 
+                          'shrink': 0.6, 'pad': 0.2},
                 ax=ax)
 
     ax.set_title(
         'H1 Test: Mean δ by Family × Language\n'
-        'Blue = model better than own baseline  |  '
-        'Red = model worse than own baseline\n'
-        '(δ_en = 0 by constraint)',
+        'Blue = better than own baseline  |  Red = worse than own baseline',
         fontsize=11, fontweight='bold')
     ax.set_ylabel('Model Family', fontsize=11)
     ax.set_xlabel('Language', fontsize=11)
 
-    plt.tight_layout()
+    # FIX: Removed plt.tight_layout() 
     path = os.path.join(RESULTS_DIR, "family_delta_heatmap.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -186,75 +206,63 @@ def plot_family_delta_heatmap(df):
 
     return pivot
 
-
 # ══════════════════════════════════════════════════════════════════════════
 # FIGURE 2 — Per-Model δ Heatmap
 # ══════════════════════════════════════════════════════════════════════════
 
 def plot_model_delta_heatmap(df):
-    """Full model × language δ heatmap, sorted by family then θ."""
-    pivot = df.pivot_table(index='base_model', columns='language',
+    """Full model × language δ heatmap, horizontal layout."""
+    pivot = df.pivot_table(index='language', columns='base_model',
                            values='delta', aggfunc='first')
-    present_langs = [l for l in LANG_ORDER if l in pivot.columns]
-    pivot = pivot[present_langs]
 
-    # Sort by family then mean delta (most negative at bottom)
-    families = df.drop_duplicates('base_model').set_index(
-        'base_model')['family']
-    thetas = df.drop_duplicates('base_model').set_index(
-        'base_model')['theta']
+    present_langs = [l for l in LANG_ORDER if l in pivot.index]
+    pivot = pivot.reindex(present_langs)
+
+    families = df.drop_duplicates('base_model').set_index('base_model')['family']
+    thetas = df.drop_duplicates('base_model').set_index('base_model')['theta']
     fam_rank = {f: i for i, f in enumerate(FAM_ORDER)}
 
-    sort_key = pd.DataFrame({
-        'fam_rank': families.reindex(pivot.index).map(fam_rank).fillna(99),
-        'theta': thetas.reindex(pivot.index).fillna(0)
-    })
-    sort_key = sort_key.sort_values(['fam_rank', 'theta'], ascending=[True, False])
-    pivot = pivot.reindex(sort_key.index)
-    families = families.reindex(sort_key.index)
+    model_order = []
+    for model in pivot.columns:
+        fam = families.get(model, 'Other')
+        fr = fam_rank.get(fam, 99)
+        th = thetas.get(model, 0)
+        model_order.append((fr, -th, model))
+    model_order.sort()
+    pivot = pivot[[m for _, _, m in model_order]]
 
-    n_models = len(pivot)
-    fig, ax = plt.subplots(figsize=(len(present_langs) * 1.0 + 3,
-                                    max(8, n_models * 0.22)))
+    n_models = len(pivot.columns)
+    
+    fig_width = max(16, n_models * 0.35 + 2)
+    fig_height = len(present_langs) * 0.4 + 2
+    
+    # FIX: Initialize tight layout here
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), layout='tight')
 
-    short_labels = [shorten_name(n) for n in pivot.index]
+    short_labels = [shorten_name(n) for n in pivot.columns]
     vmax = max(abs(np.nanmin(pivot.values)), abs(np.nanmax(pivot.values)), 0.1)
 
     sns.heatmap(pivot, cmap='RdBu', center=0, vmin=-vmax, vmax=vmax,
                 annot=True, fmt='.2f', linewidths=0.3, linecolor='white',
-                cbar_kws={'label': 'δ_jL', 'shrink': 0.5},
+                cbar_kws={'label': 'δ_jL', 'orientation': 'horizontal', 
+                          'shrink': 0.3, 'pad': 0.25},
                 annot_kws={'fontsize': 6}, ax=ax)
 
-    ax.set_yticklabels(short_labels, fontsize=6.5, rotation=0)
-    ax.set_xticklabels(present_langs, fontsize=9, rotation=0)
-
-    # Color labels by family
-    fig.canvas.draw()
-    for i, model in enumerate(pivot.index):
-        fam = families.get(model, 'Other')
-        color = FAM_COLORS.get(fam, '#333')
-        ax.get_yticklabels()[i].set_color(color)
+    ax.set_xticklabels(short_labels, fontsize=6, rotation=90, color='black')
+    ax.set_yticklabels(present_langs, fontsize=9, rotation=0)
 
     ax.set_title(
         'δ_jL: Model-Language Aptitude (all models)\n'
-        'Blue = better than own baseline  |  Red = worse  |  '
-        'en = 0 by constraint',
+        'Blue = better than own baseline  |  Red = worse',
         fontsize=11, fontweight='bold')
-    ax.set_ylabel('')
-    ax.set_xlabel('Language', fontsize=11)
+    ax.set_xlabel('')
+    ax.set_ylabel('Language', fontsize=11)
 
-    handles = [mpatches.Patch(color=c, label=f)
-               for f, c in FAM_COLORS.items()]
-    ax.legend(handles=handles, loc='lower center',
-              bbox_to_anchor=(0.5, -0.06), ncol=len(FAM_COLORS), fontsize=8)
-
-    plt.tight_layout()
+    # FIX: Removed plt.tight_layout()
     path = os.path.join(RESULTS_DIR, "model_delta_heatmap.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved: {os.path.basename(path)}")
-
-
 # ══════════════════════════════════════════════════════════════════════════
 # FIGURE 3 — δ Distribution by Language (violin + box)
 # ══════════════════════════════════════════════════════════════════════════
@@ -262,14 +270,14 @@ def plot_model_delta_heatmap(df):
 def plot_delta_violins(df):
     """
     Shows spread of δ across models for each language.
-    If violin is shifted below 0: models are systematically worse there.
+    Strictly uses the 3-color scheme (Blue, Red, Purple).
     """
     present_langs = [l for l in LANG_ORDER if l in df['language'].values]
     plot_df = df[df['language'].isin(present_langs)].copy()
 
-    fig, ax = plt.subplots(figsize=(len(present_langs) * 1.2 + 1, 5))
+    fig, ax = plt.subplots(figsize=(len(present_langs) * 1.2 + 1, 4))
 
-    # Violin
+    # Violin (Blue)
     parts = ax.violinplot(
         [plot_df[plot_df['language'] == l]['delta'].dropna().values
          for l in present_langs],
@@ -277,27 +285,27 @@ def plot_delta_violins(df):
         showmeans=True, showmedians=True, showextrema=False)
 
     for pc in parts['bodies']:
-        pc.set_facecolor('steelblue')
+        pc.set_facecolor(_c1)  # C_BLUE
         pc.set_alpha(0.4)
-    parts['cmeans'].set_color('red')
+    parts['cmeans'].set_color(_c2)     # C_RED
     parts['cmedians'].set_color('black')
 
-    # Overlay individual points colored by family
+    # Overlay individual points (Purple)
     for i, lang in enumerate(present_langs):
         grp = plot_df[plot_df['language'] == lang]
-        jitter = np.random.default_rng(42).uniform(-0.2, 0.2, len(grp))
-        for fam in FAM_ORDER:
-            mask = grp['family'] == fam
-            if mask.sum():
-                ax.scatter(
-                    np.full(mask.sum(), i) + jitter[mask.values],
-                    grp.loc[mask, 'delta'].values,
-                    color=FAM_COLORS.get(fam, '#888'),
-                    s=20, alpha=0.7, edgecolors='black', linewidths=0.3,
-                    zorder=3)
+        jitter = np.random.default_rng(42).uniform(-0.15, 0.15, len(grp))
+        
+        ax.scatter(
+            np.full(len(grp), i) + jitter,
+            grp['delta'].values,
+            color=_c3,  # C_PURPLE
+            s=20, alpha=0.7, edgecolors='black', linewidths=0.3,
+            zorder=3)
 
-    ax.axhline(0, color='red', linewidth=1, linestyle='--',
+    # Reference Line (Red)
+    ax.axhline(0, color=_c2, linewidth=1, linestyle='--',
                label='δ = 0 (no language effect)')
+               
     ax.set_xticks(range(len(present_langs)))
     ax.set_xticklabels(present_langs, fontsize=10)
     ax.set_ylabel('δ_jL', fontsize=11)
@@ -307,12 +315,7 @@ def plot_delta_violins(df):
         'Below 0 = models worse than own baseline in this language',
         fontsize=12, fontweight='bold')
     ax.grid(axis='y', alpha=0.2)
-
-    handles = [mpatches.Patch(color=c, label=f)
-               for f, c in FAM_COLORS.items()]
-    handles.append(plt.Line2D([0], [0], color='red', linestyle='--',
-                              label='δ = 0'))
-    ax.legend(handles=handles, fontsize=8, ncol=4, loc='lower left')
+    ax.legend(fontsize=8, loc='lower left')
 
     plt.tight_layout()
     path = os.path.join(RESULTS_DIR, "delta_violins.png")
@@ -429,6 +432,7 @@ def compute_stats(df):
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    if _HAS_FIG_STYLE: apply_style()
     print("=" * 60)
     print("H1 DIRECT TEST: Isolating δ_jL")
     print("=" * 60)

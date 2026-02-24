@@ -49,6 +49,18 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+# ── fig_style integration ──────────────────────────────────────────────
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV,
+                           FAM_COLORS as FS_FAM_COLORS, LABELS, FULL_WIDTH,
+                           add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found — using fallback styling")
 from tqdm import tqdm
 from scipy.stats import spearmanr, pearsonr
 from sklearn.metrics import (
@@ -59,6 +71,7 @@ from sklearn.calibration import calibration_curve
 import os
 import warnings
 import re
+import pickle
 from collections import defaultdict
 
 warnings.filterwarnings('ignore')
@@ -179,7 +192,14 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
 # UNIFIED FITTER WITH CONVERGENCE-BASED STOPPING
 # ══════════════════════════════════════════════════════════════════════════
 
-def fit_irt(df_subset, anchor_ids, label="full"):
+def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
+    if cache_key:
+        cache_path = os.path.join(RESULTS_DIR, f"_cache_{cache_key}.pkl")
+        if os.path.exists(cache_path):
+            print(f"    ★ Loading cached IRT [{label}] from {cache_path}")
+            with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+
     pyro.clear_param_store()
 
     student_col = 'test_taker' if 'test_taker' in df_subset.columns else 'model'
@@ -251,7 +271,7 @@ def fit_irt(df_subset, anchor_ids, label="full"):
     # CHANGED 3b: extract alpha
     alpha_mean = samples['alpha'].detach().cpu().numpy().mean(axis=0).reshape(num_prompts).astype(np.float64)
 
-    return {
+    result = {
         'theta_mean': theta_mean, 'theta_std': theta_std,
         'beta_mean': beta_mean, 'beta_std': beta_std,
         'gamma_mean': gamma_mean,
@@ -262,6 +282,11 @@ def fit_irt(df_subset, anchor_ids, label="full"):
         'num_students': num_students, 'num_prompts': num_prompts, 'num_langs': num_langs,
         'losses': losses, 'converged_at': converged_at,
     }
+    if cache_key:
+        with open(cache_path, 'wb') as f:
+            pickle.dump(result, f)
+        print(f"    ★ Cached IRT [{label}] → {cache_path}")
+    return result
 
 # ══════════════════════════════════════════════════════════════════════════
 # PREDICTION FUNCTIONS
@@ -483,6 +508,10 @@ def d1_leave_one_family_out(df, anchor_ids):
     print("\n" + "=" * 70)
     print("D1: LEAVE-ONE-FAMILY-OUT")
     print("=" * 70)
+    cache_csv = os.path.join(RESULTS_DIR, "D1_LOFO_results.csv")
+    if os.path.exists(cache_csv):
+        print(f"  ★ Loading cached D1 from {cache_csv}")
+        return pd.read_csv(cache_csv)
     sc = 'test_taker' if 'test_taker' in df.columns else 'model'
     families = sorted(df['model_family'].unique())
     all_results = []
@@ -501,6 +530,10 @@ def d2_leave_one_language_out(df, anchor_ids):
     print("\n" + "=" * 70)
     print("D2: LEAVE-ONE-LANGUAGE-OUT")
     print("=" * 70)
+    cache_csv = os.path.join(RESULTS_DIR, "D2_LOLO_results.csv")
+    if os.path.exists(cache_csv):
+        print(f"  ★ Loading cached D2 from {cache_csv}")
+        return pd.read_csv(cache_csv)
     languages = sorted(df['language'].unique())
     all_results = []
     for lang in languages:
@@ -518,6 +551,10 @@ def d3_leave_one_pass_out(df, anchor_ids):
     print("\n" + "=" * 70)
     print("D3: LEAVE-ONE-PASS-OUT")
     print("=" * 70)
+    cache_csv = os.path.join(RESULTS_DIR, "D3_LOPO_results.csv")
+    if os.path.exists(cache_csv):
+        print(f"  ★ Loading cached D3 from {cache_csv}")
+        return pd.read_csv(cache_csv)
     available = sorted(df['pass_num'].dropna().unique())
     all_results = []
 
@@ -558,13 +595,26 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
 
     method_order = ['Global Rate', 'Language Rate', 'Model Rate',
                     'Model×Lang Rate', 'Prompt×Lang Rate', 'IRT (no τ)', 'IRT (full)']
+
+    # ── Style constants (resolved once) ────────────────────────────
+    if _HAS_FIG_STYLE:
+        _c1, _c2, _c3 = C_BLUE, C_RED, C_PURPLE
+        _sv = fs_savefig
+        _L  = LABELS
+    else:
+        _c1, _c2, _c3 = '#2471a3', '#c0392b', '#7d3c98'
+        _sv = lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+        _L  = {'tau_short': r'$\tau$'}
+
     method_colors = {
-        'Global Rate': '#bdc3c7', 'Language Rate': '#95a5a6', 'Model Rate': '#7f8c8d',
-        'Model×Lang Rate': '#3498db', 'Prompt×Lang Rate': '#2ecc71',
-        'IRT (no τ)': '#e67e22', 'IRT (full)': '#e74c3c'
+        'Global Rate': '#bdc3c7', 'Language Rate': '#95a5a6',
+        'Model Rate': '#7f8c8d', 'Model×Lang Rate': '#5d6d7e',
+        'Prompt×Lang Rate': '#aab7b8',
+        'IRT (no τ)': _c3,      # purple = ablated reference
+        'IRT (full)': _c1,       # blue = main model ("good")
     }
 
-    # ── Figure D.1: Bar plots per fold type ──
+    # ── Figure D.1: Bar plots per fold type ───────────────────────
     for fold_type, title in [('LOFO', 'Leave-One-Family-Out'),
                               ('LOLO', 'Leave-One-Language-Out'),
                               ('LOPO', 'Leave-One-Pass-Out'),
@@ -573,7 +623,11 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
         if len(sub) == 0:
             continue
 
-        fig, axes = plt.subplots(1, 4, figsize=(24, 6))
+        if _HAS_FIG_STYLE:
+            fig, axes = make_fig(n_panels=4, height_override=2.5)
+        else:
+            fig, axes = plt.subplots(1, 4, figsize=(5.5, 2.5))
+
         for ax_idx, (metric, mlabel) in enumerate([
             ('auc_roc', 'AUC-ROC'), ('brier', 'Brier Score'),
             ('log_loss', 'Log Loss'), ('accuracy', 'Accuracy')
@@ -586,22 +640,20 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
             errs = [stds[m] for m in present]
             cols = [method_colors.get(m, '#666') for m in present]
             bars = ax.bar(range(len(present)), vals, yerr=errs, color=cols,
-                          edgecolor='black', linewidth=0.5, capsize=3)
+                          edgecolor='black', linewidth=0.3, capsize=1.5,
+                          error_kw={'linewidth': 0.5})
             ax.set_xticks(range(len(present)))
-            ax.set_xticklabels(present, rotation=45, ha='right', fontsize=8)
-            ax.set_ylabel(mlabel); ax.set_title(mlabel, fontweight='bold')
-            ax.grid(axis='y', alpha=0.3)
+            ax.set_xticklabels(present, rotation=55, ha='right')
+            ax.set_ylabel(mlabel)
+            ax.set_title(mlabel)
             for bar, val in zip(bars, vals):
                 ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.002,
-                        f'{val:.3f}', ha='center', va='bottom', fontsize=7)
+                        f'{val:.3f}', ha='center', va='bottom', fontsize=4)
 
-        plt.suptitle(f'{title}: Predictive Performance', fontsize=14, fontweight='bold')
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
-        plt.savefig(os.path.join(RESULTS_DIR, f"D_{fold_type}_barplot.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"  Saved: D_{fold_type}_barplot.png")
+        _sv(fig, os.path.join(RESULTS_DIR, f"D_{fold_type}_barplot.png"))
+        print(f"  Saved: D_{fold_type}_barplot")
 
-    # ── Figure D.2: Heatmaps ──
+    # ── Figure D.2: Heatmaps ─────────────────────────────────────
     for fold_type, fold_name in [('LOFO', 'Family'), ('LOLO', 'Language'),
                                   ('LOPO', 'Pass'), ('Random', 'Fold')]:
         sub = all_results[all_results['fold_type'] == fold_type]
@@ -610,24 +662,35 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
         pivot = sub.pivot_table(index='label', columns='held_out', values='auc_roc')
         present = [m for m in method_order if m in pivot.index]
         pivot = pivot.reindex(present)
-        fig, ax = plt.subplots(figsize=(max(10, len(pivot.columns) * 1.5), 6))
-        sns.heatmap(pivot, annot=True, fmt='.3f', cmap='RdYlGn', vmin=0.5, vmax=1.0, ax=ax,
-                    linewidths=0.5, cbar_kws={'label': 'AUC-ROC'})
-        ax.set_title(f'AUC-ROC × Held-Out {fold_name}', fontweight='bold')
-        plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, f"D_{fold_type}_heatmap.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"  Saved: D_{fold_type}_heatmap.png")
 
-    # ── Figure D.3: τ ablation ──
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        if _HAS_FIG_STYLE:
+            fig, ax = make_fig(n_panels=1, height_override=2.8)
+        else:
+            fig, ax = plt.subplots(figsize=(5.5, 2.8))
+
+        sns.heatmap(pivot, annot=True, fmt='.3f', cmap='RdYlGn',
+                    vmin=0.5, vmax=1.0, ax=ax, linewidths=0.3,
+                    annot_kws={'fontsize': 4, 'color': 'black'},
+                    cbar_kws={'label': 'AUC-ROC', 'shrink': 0.8})
+        ax.set_title(f'AUC-ROC × Held-Out {fold_name}')
+        _sv(fig, os.path.join(RESULTS_DIR, f"D_{fold_type}_heatmap.png"))
+        print(f"  Saved: D_{fold_type}_heatmap")
+
+    # ── Figure D.3: τ ablation ───────────────────────────────────
+    _tau = _L.get('tau_short', r'$\tau$')
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig(n_panels=3, height_override=2.5)
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=(5.5, 2.5))
+
     for ax_idx, ft in enumerate(['LOFO', 'LOLO', 'LOPO']):
         ax = axes[ax_idx]
         sub = all_results[all_results['fold_type'] == ft]
         if len(sub) == 0:
             sub = all_results[all_results['fold_type'] == 'Random']
         if len(sub) == 0:
-            ax.text(0.5, 0.5, 'No data', transform=ax.transAxes, ha='center'); continue
+            ax.text(0.5, 0.5, 'No data', transform=ax.transAxes, ha='center')
+            continue
 
         full = sub[sub['label'] == 'IRT (full)'].set_index('held_out')['auc_roc']
         notau = sub[sub['label'] == 'IRT (no τ)'].set_index('held_out')['auc_roc']
@@ -635,24 +698,22 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
         if len(common) == 0: continue
 
         delta = full[common] - notau[common]
-        cols = ['#2ecc71' if d > 0 else '#e74c3c' for d in delta.values]
-        ax.bar(range(len(delta)), delta.values, color=cols, edgecolor='black', linewidth=0.5)
+        cols = [_c1 if d > 0 else _c2 for d in delta.values]
+        ax.bar(range(len(delta)), delta.values, color=cols,
+               edgecolor='black', linewidth=0.3)
         ax.set_xticks(range(len(delta)))
-        ax.set_xticklabels(common, rotation=45, ha='right', fontsize=9)
-        ax.axhline(0, color='black', linewidth=0.8)
-        ax.axhline(delta.mean(), color='blue', linestyle='--', alpha=0.7,
-                    label=f'Mean Δ={delta.mean():.4f}')
-        ax.set_ylabel('ΔAUC (full − no τ)')
-        ax.set_title(f'{ft}: τ Contribution', fontweight='bold')
-        ax.legend(fontsize=9); ax.grid(axis='y', alpha=0.3)
+        ax.set_xticklabels(common, rotation=45, ha='right')
+        ax.axhline(0, color='black', linewidth=0.5)
+        ax.axhline(delta.mean(), color=_c3, ls='--', alpha=0.7, lw=0.6,
+                    label=f'Mean $\\Delta$={delta.mean():.4f}')
+        ax.set_ylabel(r'$\Delta$AUC (full $-$ no ' + _tau + ')')
+        ax.set_title(f'{ft}: {_tau} Contribution')
+        ax.legend(fontsize=5)
 
-    plt.suptitle('Contribution of τ to Predictive Performance', fontsize=14, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.93])
-    plt.savefig(os.path.join(RESULTS_DIR, "D_tau_ablation.png"), dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"  Saved: D_tau_ablation.png")
+    _sv(fig, os.path.join(RESULTS_DIR, "D_tau_ablation.png"))
+    print(f"  Saved: D_tau_ablation")
 
-    # ── Figure D.4: Calibration + ROC ──
+    # ── Figure D.4: Calibration + ROC ────────────────────────────
     print("  Generating calibration curves...")
     np.random.seed(SEED)
     mask = np.random.rand(len(df)) < 0.85
@@ -667,49 +728,70 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
             'Language Rate': baseline_language(train_cal, test_cal),
             'Prompt×Lang Rate': baseline_prompt_lang(train_cal, test_cal),
         }
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        ax = axes[0]; ax.plot([0, 1], [0, 1], 'k--', label='Perfect')
+        cal_colors = {'IRT (full)': _c1, 'IRT (no τ)': _c3,
+                      'Language Rate': '#95a5a6', 'Prompt×Lang Rate': '#7f8c8d'}
+
+        if _HAS_FIG_STYLE:
+            fig, axes = make_fig(n_panels=2, height_override=2.5)
+        else:
+            fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.5))
+
+        ax = axes[0]
+        ax.plot([0, 1], [0, 1], 'k--', lw=0.5, label='Perfect')
         for name, yp in methods_cal.items():
             yp_c = np.clip(yp, 1e-7, 1 - 1e-7)
             try:
-                pt, pp = calibration_curve(y_true_cal, yp_c, n_bins=10, strategy='uniform')
-                ax.plot(pp, pt, 'o-', label=name, markersize=5)
+                pt, pp = calibration_curve(y_true_cal, yp_c, n_bins=10,
+                                           strategy='uniform')
+                ax.plot(pp, pt, 'o-', label=name, markersize=2,
+                        color=cal_colors.get(name))
             except: pass
-        ax.set_xlabel('Predicted P(safe)'); ax.set_ylabel('Observed P(safe)')
-        ax.set_title('Calibration', fontweight='bold'); ax.legend(fontsize=9); ax.grid(True, alpha=0.3); ax.set_aspect('equal')
+        ax.set_xlabel('Predicted $P$(safe)')
+        ax.set_ylabel('Observed $P$(safe)')
+        ax.set_title('Calibration')
+        ax.legend(fontsize=5)
 
         ax = axes[1]
         for name, yp in methods_cal.items():
             yp_c = np.clip(yp, 1e-7, 1 - 1e-7)
             try:
                 fpr, tpr, _ = roc_curve(y_true_cal, yp_c)
-                auc = roc_auc_score(y_true_cal, yp_c)
-                ax.plot(fpr, tpr, label=f'{name} ({auc:.3f})')
+                auc_val = roc_auc_score(y_true_cal, yp_c)
+                ax.plot(fpr, tpr, label=f'{name} ({auc_val:.3f})',
+                        color=cal_colors.get(name))
             except: pass
-        ax.plot([0, 1], [0, 1], 'k--', alpha=0.5)
+        ax.plot([0, 1], [0, 1], 'k--', alpha=0.5, lw=0.5)
         ax.set_xlabel('FPR'); ax.set_ylabel('TPR')
-        ax.set_title('ROC Curves', fontweight='bold'); ax.legend(fontsize=9, loc='lower right'); ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, "D_calibration_roc.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"  Saved: D_calibration_roc.png")
+        ax.set_title('ROC Curves')
+        ax.legend(fontsize=5, loc='lower right')
 
-    # ── Figure D.5: Convergence across folds ──
+        _sv(fig, os.path.join(RESULTS_DIR, "D_calibration_roc.png"))
+        print(f"  Saved: D_calibration_roc")
+
+    # ── Figure D.5: Convergence across folds ─────────────────────
     if 'converged_at' in all_results.columns:
-        fig, ax = plt.subplots(figsize=(10, 5))
-        conv_data = all_results[all_results['label'] == 'IRT (full)'][['fold_type', 'held_out', 'converged_at']].drop_duplicates()
+        if _HAS_FIG_STYLE:
+            fig, ax = make_fig(n_panels=1, height_override=2.2)
+        else:
+            fig, ax = plt.subplots(figsize=(5.5, 2.2))
+
+        conv_data = all_results[all_results['label'] == 'IRT (full)'][
+            ['fold_type', 'held_out', 'converged_at']].drop_duplicates()
+        ft_colors = {'LOFO': _c1, 'LOLO': _c2, 'LOPO': _c3, 'Random': '#7f8c8d'}
         for ft in conv_data['fold_type'].unique():
             sub = conv_data[conv_data['fold_type'] == ft]
-            ax.scatter(sub['held_out'], sub['converged_at'], s=80, label=ft, edgecolors='black', linewidth=0.5)
-        ax.axhline(MAX_TRAINING_STEPS, color='red', linestyle='--', alpha=0.5, label=f'Max ({MAX_TRAINING_STEPS})')
+            ax.scatter(sub['held_out'], sub['converged_at'], s=15, label=ft,
+                       edgecolors='black', linewidth=0.3,
+                       color=ft_colors.get(ft, '#7f8c8d'))
+        ax.axhline(MAX_TRAINING_STEPS, color=_c2, ls='--', alpha=0.5,
+                    lw=0.6, label=f'Max ({MAX_TRAINING_STEPS})')
         ax.set_ylabel('Converged at Step')
-        ax.set_title('IRT Convergence Across Folds', fontweight='bold')
-        ax.legend(); ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, "D_convergence_by_fold.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"  Saved: D_convergence_by_fold.png")
+        ax.set_title('IRT Convergence Across Folds')
+        ax.legend(fontsize=5)
+        ax.tick_params(axis='x', rotation=45)
+
+        _sv(fig, os.path.join(RESULTS_DIR, "D_convergence_by_fold.png"))
+        print(f"  Saved: D_convergence_by_fold")
 
     # ── Summary Table ──
     summary_lines = []
@@ -785,4 +867,6 @@ def run_experiment_d():
 
 
 if __name__ == "__main__":
+    if _HAS_FIG_STYLE:
+        apply_style()
     run_experiment_d()

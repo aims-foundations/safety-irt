@@ -35,6 +35,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import seaborn as sns
+# ── fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
+
+# ── Color Palette Configuration ──
+_c1 = C_BLUE if _HAS_FIG_STYLE else '#2471a3'   # Normal (Baseline)
+_c2 = C_RED if _HAS_FIG_STYLE else '#c0392b'    # Horseshoe (Target)
+_c3 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98' # Moderate (Intermediate)
+
+PRIOR_COLORS = {'horseshoe': _c2, 'moderate': _c3, 'normal': _c1}
+
+
 from scipy.stats import pearsonr, spearmanr
 from tqdm import tqdm
 import os
@@ -306,25 +328,25 @@ def plot_gamma_comparison(results):
     langs = sorted(l_map.keys(), key=lambda x: l_map[x])
     non_en = [l for l in langs if l != 'en']
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    # Increased height (was 14, 7 -> now 14, 8)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 8), layout='tight')
 
     # Left: grouped bar chart of γ by language
     ax = axes[0]
     x = np.arange(len(non_en))
     width = 0.25
-    colors = {'horseshoe': '#e74c3c', 'moderate': '#f39c12', 'normal': '#3498db'}
 
     for i, (name, res) in enumerate(results.items()):
         gamma_vals = [res['gamma'][l_map[l]] for l in non_en]
         ax.bar(x + i * width, gamma_vals, width, label=name,
-               color=colors[name], edgecolor='black', linewidth=0.4)
+               color=PRIOR_COLORS[name], edgecolor='black', linewidth=0.4)
 
     ax.set_xticks(x + width)
-    ax.set_xticklabels(non_en, fontsize=10)
+    ax.set_xticklabels(non_en, fontsize=11)
     ax.axhline(0, color='black', linewidth=0.8)
-    ax.set_ylabel('γ_L (language difficulty shift)', fontsize=10)
-    ax.set_title('γ Estimates Under Different τ Priors', fontweight='bold')
-    ax.legend(fontsize=9)
+    ax.set_ylabel('γ_L (language difficulty shift)', fontsize=11)
+    ax.set_title('γ Estimates Under Different τ Priors', fontweight='bold', fontsize=12)
+    ax.legend(fontsize=10)
     ax.grid(axis='y', alpha=0.2)
 
     # Right: scatter of horseshoe γ vs normal γ
@@ -332,30 +354,30 @@ def plot_gamma_comparison(results):
     hs_gamma = np.array([ref['gamma'][l_map[l]] for l in non_en])
     nm_gamma = np.array([results['normal']['gamma'][l_map[l]] for l in non_en])
 
-    ax.scatter(hs_gamma, nm_gamma, s=80, color='steelblue',
+    ax.scatter(hs_gamma, nm_gamma, s=90, color=_c1,
                edgecolors='black', linewidths=0.5, zorder=3)
     for j, lang in enumerate(non_en):
         ax.annotate(lang, (hs_gamma[j], nm_gamma[j]),
-                    fontsize=9, ha='left', va='bottom',
-                    xytext=(4, 4), textcoords='offset points')
+                    fontsize=10, ha='left', va='bottom',
+                    xytext=(5, 5), textcoords='offset points')
 
     lims = [min(hs_gamma.min(), nm_gamma.min()) - 0.1,
             max(hs_gamma.max(), nm_gamma.max()) + 0.1]
-    ax.plot(lims, lims, 'r--', alpha=0.7, label='Identity')
+    ax.plot(lims, lims, color=_c2, linestyle='--', alpha=0.7, label='Identity')
 
     if len(non_en) >= 3:
         r, p = pearsonr(hs_gamma, nm_gamma)
         ax.set_title(f'γ: Horseshoe vs Normal Prior\n'
-                     f'r = {r:.3f}, p = {p:.3e}', fontweight='bold')
-    ax.set_xlabel('γ (Horseshoe / StudentT df=1)', fontsize=10)
-    ax.set_ylabel('γ (Normal prior)', fontsize=10)
-    ax.legend(fontsize=9)
+                     f'r = {r:.3f}, p = {p:.3e}', fontweight='bold', fontsize=12)
+    ax.set_xlabel('γ (Horseshoe / StudentT df=1)', fontsize=11)
+    ax.set_ylabel('γ (Normal prior)', fontsize=11)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.2)
     ax.set_aspect('equal')
 
     plt.suptitle('Horseshoe Sensitivity: Effect on γ Estimates',
-                 fontsize=13, fontweight='bold')
-    plt.tight_layout()
+                 fontsize=14, fontweight='bold')
+                 
     path = os.path.join(RESULTS_DIR, "horseshoe_gamma_sensitivity.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -368,23 +390,23 @@ def plot_gamma_comparison(results):
 
 def plot_tau_comparison(results):
     """Show that Horseshoe shrinks τ toward 0 more aggressively."""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    colors = {'horseshoe': '#e74c3c', 'moderate': '#f39c12', 'normal': '#3498db'}
+    # Increased height (was 18, 7 -> now 18, 8.5)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 8.5), layout='tight')
 
     # Left: overlaid histograms of all τ values
     ax = axes[0]
     for name, res in results.items():
         tau_flat = res['tau_mean'].flatten()
         tau_nonzero = tau_flat[np.abs(tau_flat) > 1e-6]  # exclude masked
-        ax.hist(tau_nonzero, bins=80, alpha=0.4, color=colors[name],
+        ax.hist(tau_nonzero, bins=80, alpha=0.5, color=PRIOR_COLORS[name],
                 label=f'{name} (std={np.std(tau_nonzero):.3f})',
                 density=True, edgecolor='none')
 
     ax.axvline(0, color='black', linewidth=1)
-    ax.set_xlabel('τ_iL value', fontsize=10)
-    ax.set_ylabel('Density', fontsize=10)
-    ax.set_title('τ Distribution by Prior', fontweight='bold')
-    ax.legend(fontsize=9)
+    ax.set_xlabel('τ_iL value', fontsize=11)
+    ax.set_ylabel('Density', fontsize=11)
+    ax.set_title('τ Distribution by Prior', fontweight='bold', fontsize=12)
+    ax.legend(fontsize=10)
     ax.grid(axis='y', alpha=0.2)
 
     # Middle: % of τ near zero (sparsity check)
@@ -394,13 +416,13 @@ def plot_tau_comparison(results):
         tau_flat = res['tau_mean'].flatten()
         tau_nonzero = tau_flat[np.abs(tau_flat) > 1e-6]
         pcts = [(np.abs(tau_nonzero) < t).mean() * 100 for t in thresholds]
-        ax.plot(thresholds, pcts, 'o-', color=colors[name],
-                label=name, linewidth=2, markersize=6)
+        ax.plot(thresholds, pcts, 'o-', color=PRIOR_COLORS[name],
+                label=name, linewidth=2.5, markersize=7)
 
-    ax.set_xlabel('|τ| threshold', fontsize=10)
-    ax.set_ylabel('% of τ values below threshold', fontsize=10)
-    ax.set_title('Sparsity: % τ Near Zero', fontweight='bold')
-    ax.legend(fontsize=9)
+    ax.set_xlabel('|τ| threshold', fontsize=11)
+    ax.set_ylabel('% of τ values below threshold', fontsize=11)
+    ax.set_title('Sparsity: % τ Near Zero', fontweight='bold', fontsize=12)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.2)
 
     # Right: per-language mean |τ| comparison
@@ -420,19 +442,19 @@ def plot_tau_comparison(results):
             col = col[np.abs(col) > 1e-6]
             mean_abs_tau.append(np.mean(np.abs(col)) if len(col) else 0)
         ax.bar(x + i * width, mean_abs_tau, width,
-               color=colors[name], label=name,
-               edgecolor='black', linewidth=0.3)
+               color=PRIOR_COLORS[name], label=name,
+               edgecolor='black', linewidth=0.4)
 
     ax.set_xticks(x + width)
-    ax.set_xticklabels(non_en, fontsize=10)
-    ax.set_ylabel('Mean |τ_iL|', fontsize=10)
-    ax.set_title('τ Magnitude by Language', fontweight='bold')
-    ax.legend(fontsize=9)
+    ax.set_xticklabels(non_en, fontsize=11)
+    ax.set_ylabel('Mean |τ_iL|', fontsize=11)
+    ax.set_title('τ Magnitude by Language', fontweight='bold', fontsize=12)
+    ax.legend(fontsize=10)
     ax.grid(axis='y', alpha=0.2)
 
     plt.suptitle('Horseshoe Sensitivity: Effect on τ Estimates',
-                 fontsize=13, fontweight='bold')
-    plt.tight_layout()
+                 fontsize=14, fontweight='bold')
+                 
     path = os.path.join(RESULTS_DIR, "horseshoe_tau_sensitivity.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -448,9 +470,9 @@ def plot_gamma_tau_collinearity(results):
     If γ_L and mean_i(τ_iL) are highly correlated, they're confounded.
     The Horseshoe should reduce this correlation by shrinking small τ → 0.
     """
-    fig, axes = plt.subplots(1, len(results), figsize=(6 * len(results), 5),
-                             squeeze=False)
-    colors = {'horseshoe': '#e74c3c', 'moderate': '#f39c12', 'normal': '#3498db'}
+    # Decreased height to fit nicely on 1 line (was 6*len, 7 -> now 16, 5.5)
+    fig, axes = plt.subplots(1, len(results), figsize=(16, 5.5),
+                             squeeze=False, layout='tight')
 
     for col_idx, (name, res) in enumerate(results.items()):
         ax = axes[0][col_idx]
@@ -470,37 +492,36 @@ def plot_gamma_tau_collinearity(results):
         gammas = np.array(gammas)
         mean_taus = np.array(mean_taus)
 
-        ax.scatter(gammas, mean_taus, s=80, color=colors[name],
+        ax.scatter(gammas, mean_taus, s=90, color=PRIOR_COLORS[name],
                    edgecolors='black', linewidths=0.5, zorder=3)
 
         for j, lang in enumerate(non_en):
             ax.annotate(lang, (gammas[j], mean_taus[j]),
-                        fontsize=9, ha='left', va='bottom',
-                        xytext=(4, 4), textcoords='offset points')
+                        fontsize=10, ha='left', va='bottom',
+                        xytext=(5, 5), textcoords='offset points')
 
         if len(non_en) >= 3:
             r, p = pearsonr(gammas, mean_taus)
-            ax.set_title(f'{name}\nr(γ, mean τ) = {r:.3f} (p={p:.3f})',
-                         fontweight='bold', fontsize=11)
+            ax.set_title(f'{name.capitalize()}\nr(γ, mean τ) = {r:.3f} (p={p:.3f})',
+                         fontweight='bold', fontsize=12)
         else:
-            ax.set_title(name, fontweight='bold')
+            ax.set_title(name.capitalize(), fontweight='bold', fontsize=12)
 
         ax.axhline(0, color='gray', linewidth=0.8, linestyle=':')
         ax.axvline(0, color='gray', linewidth=0.8, linestyle=':')
-        ax.set_xlabel('γ_L', fontsize=10)
-        ax.set_ylabel('mean_i(τ_iL)', fontsize=10)
+        ax.set_xlabel('γ_L', fontsize=11)
+        ax.set_ylabel('mean_i(τ_iL)', fontsize=11)
         ax.grid(True, alpha=0.2)
 
     plt.suptitle('Multicollinearity Check: γ_L vs mean(τ_iL)\n'
                  'Lower |r| under Horseshoe = better identification',
-                 fontsize=13, fontweight='bold')
-    plt.tight_layout()
+                 fontsize=14, fontweight='bold', y=1.05)
+                 
     path = os.path.join(RESULTS_DIR, "gamma_tau_collinearity.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved: {os.path.basename(path)}")
-
-
+    
 # ══════════════════════════════════════════════════════════════════════════
 # SUMMARY TABLE
 # ══════════════════════════════════════════════════════════════════════════
@@ -576,6 +597,7 @@ def make_summary(results):
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    if _HAS_FIG_STYLE: apply_style()
     print("=" * 60)
     print("HORSESHOE SENSITIVITY & γ-τ MULTICOLLINEARITY")
     print("=" * 60)

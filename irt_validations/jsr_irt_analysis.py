@@ -32,6 +32,21 @@ import re
 import warnings
 warnings.filterwarnings('ignore')
 
+# ── INSERT THIS BLOCK: fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
+# ───────────────────────────────────────────────
+
 # ══════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════
@@ -44,15 +59,16 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 PRIMARY_IRT = '2PL'
 
-FAM_COLORS = {
-    'GPT':      '#3498db',
-    'Claude':   '#9b59b6',
-    'Gemini':   '#2ecc71',
-    'Grok':     '#e74c3c',
-    'DeepSeek': '#f39c12',
-    'Other':    '#95a5a6',
+FAM_COLORS = FS_FAM_COLORS if _HAS_FIG_STYLE else {
+    'Claude':   '#7d3c98', 'GPT':      '#2471a3',
+    'Gemini':   '#c0392b', 'Grok':     '#e67e22',
+    'DeepSeek': '#27ae60', 'Other':    '#7f8c8d',
 }
-FAM_ORDER = ['GPT', 'Claude', 'Gemini', 'Grok', 'DeepSeek', 'Other']
+FAM_ORDER = FS_FAM_ORDER if _HAS_FIG_STYLE else \
+    ['GPT', 'Claude', 'Gemini', 'Grok', 'DeepSeek', 'Other']
+
+_save = fs_savefig if _HAS_FIG_STYLE else \
+    lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
 
 
 def get_model_family(name):
@@ -190,44 +206,44 @@ def compute_lang_ranks(lang_df, irt_model):
 # ══════════════════════════════════════════════════════════════════════════
 
 def plot_top_movers(overall, irt_model, top_k=20):
-    """Show only the models with biggest rank divergence. Clean and readable."""
+    """Show only the models with biggest rank divergence."""
     df = compute_overall_ranks(overall, irt_model)
     df['abs_delta'] = df['Rank_Delta'].abs()
     top = df.nlargest(top_k, 'abs_delta').sort_values('Rank_Delta')
 
-    fig, ax = plt.subplots(figsize=(10, max(5, len(top) * 0.35)))
+    h = max(3.0, len(top) * 0.22)
+    if _HAS_FIG_STYLE:
+        fig, ax = make_fig(n_panels=1, height_override=h)
+        if isinstance(ax, np.ndarray): ax = ax[0]
+    else:
+        fig, ax = plt.subplots(figsize=(5.5, h))
 
     labels = [shorten_name(t) for t in top['test_taker']]
     deltas = top['Rank_Delta'].values
-    colors = [FAM_COLORS.get(f, '#888') for f in top['model_family']]
+    colors = [FAM_COLORS.get(f, '#7f8c8d') for f in top['model_family']]
 
-    bars = ax.barh(range(len(top)), deltas, color=colors,
-                   edgecolor='black', linewidth=0.4, alpha=0.85)
+    ax.barh(range(len(top)), deltas, color=colors,
+            edgecolor='black', linewidth=0.3, alpha=0.85)
 
-    # Annotate JSR rank → θ rank
     for i, (_, row) in enumerate(top.iterrows()):
         ha = 'right' if row['Rank_Delta'] > 0 else 'left'
         offset = -0.3 if row['Rank_Delta'] > 0 else 0.3
         ax.text(deltas[i] + offset, i,
-                f"JSR#{int(row['JSR_Rank'])} → θ#{int(row['Theta_Rank'])}",
-                va='center', ha=ha, fontsize=7, color='#333')
+                f"JSR#{int(row['JSR_Rank'])}→θ#{int(row['Theta_Rank'])}",
+                va='center', ha=ha, fontsize=4, color='#333')
 
     ax.set_yticks(range(len(top)))
-    ax.set_yticklabels(labels, fontsize=8)
-    ax.axvline(0, color='black', linewidth=1)
-    ax.set_xlabel('Rank Δ  (JSR Rank − θ Rank)\n'
-                  '← Flattered by JSR  |  Penalized by JSR →', fontsize=10)
-    ax.set_title(f'Top {len(top)} Rank Divergences: JSR vs IRT ({irt_model})',
-                 fontsize=13, fontweight='bold')
-    ax.grid(axis='x', alpha=0.2)
+    ax.set_yticklabels(labels)
+    ax.axvline(0, color='black', linewidth=0.5)
+    ax.set_xlabel(r'Rank $\Delta$ (JSR $-$ $\theta$)')
+    ax.set_title(f'Top {len(top)} Rank Divergences ({irt_model})')
 
-    handles = [mpatches.Patch(color=c, label=f) for f, c in FAM_COLORS.items()]
-    ax.legend(handles=handles, fontsize=8, loc='lower right')
+    handles = [mpatches.Patch(color=c, label=f) for f, c in FAM_COLORS.items()
+               if f in top['model_family'].values]
+    ax.legend(handles=handles, fontsize=4, loc='lower right')
 
-    plt.tight_layout()
     path = os.path.join(RESULTS_DIR, f"top_movers_{irt_model}.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _save(fig, path)
     print(f"  Saved: {os.path.basename(path)}")
 
 
@@ -241,7 +257,10 @@ def plot_divergence_distribution(overall, irt_model):
     deltas = df['Rank_Delta'].values
     n = len(df)
 
-    # Compute metrics
+    _c1 = C_BLUE   if _HAS_FIG_STYLE else '#2471a3'
+    _c2 = C_RED    if _HAS_FIG_STYLE else '#c0392b'
+    _c3 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98'
+
     rm   = rmsrd(df['JSR_Rank'].values, df['Theta_Rank'].values, n)
     qwk  = quadratic_weighted_kappa(df['JSR_Rank'].values,
                                     df['Theta_Rank'].values)
@@ -249,50 +268,47 @@ def plot_divergence_distribution(overall, irt_model):
                                     df['Theta_Rank'].values)
     rho, _ = spearmanr(df['JSR_Rank'].values, df['Theta_Rank'].values)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig(n_panels=2, height_override=3.2)
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.2))
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
     # Left: histogram
     ax = axes[0]
     bins = np.arange(deltas.min() - 0.5, deltas.max() + 1.5, 1)
-    ax.hist(deltas, bins=bins, color='steelblue', edgecolor='black',
-            linewidth=0.5, alpha=0.8)
-    ax.axvline(0, color='red', linewidth=1.5, linestyle='--')
-    ax.axvline(np.mean(deltas), color='orange', linewidth=1.5, linestyle='-',
-               label=f'Mean = {np.mean(deltas):.1f}')
-    ax.set_xlabel('Rank Δ (JSR − θ)', fontsize=11)
-    ax.set_ylabel('Count', fontsize=11)
-    ax.set_title('Distribution of Rank Divergence', fontweight='bold')
-    ax.legend(fontsize=10)
-    ax.grid(axis='y', alpha=0.2)
+    ax.hist(deltas, bins=bins, color=_c1, edgecolor='black',
+            linewidth=0.3, alpha=0.8)
+    ax.axvline(0, color=_c2, linewidth=0.8, linestyle='--')
+    ax.axvline(np.mean(deltas), color=_c3, linewidth=0.8, linestyle='-',
+               label=f'Mean={np.mean(deltas):.1f}')
+    ax.set_xlabel(r'Rank $\Delta$ (JSR $-$ $\theta$)')
+    ax.set_ylabel('Count')
+    ax.set_title('Rank Divergence Distribution')
+    ax.legend(fontsize=5)
 
     # Right: metrics card
     ax = axes[1]
     ax.axis('off')
     metrics_text = (
-        f"Divergence Metrics ({irt_model}, N={n})\n"
-        f"{'─' * 40}\n\n"
-        f"RMSRD (quadratic)     = {rm:.3f}\n"
-        f"  √(mean(Δ²)) / (N−1)\n"
-        f"  0 = perfect, higher = worse\n\n"
-        f"Quadratic Weighted κ  = {qwk:.3f}\n"
-        f"  1 = perfect, 0 = chance\n\n"
-        f"Mean |Δ|  (linear)    = {mad:.1f} ranks\n\n"
-        f"Spearman ρ            = {rho:.3f}\n\n"
-        f"{'─' * 40}\n"
-        f"Max shift: {int(np.max(np.abs(deltas)))} ranks\n"
-        f"|Δ| ≥ 5:  {(np.abs(deltas) >= 5).sum()}/{n} models\n"
-        f"|Δ| ≥ 10: {(np.abs(deltas) >= 10).sum()}/{n} models"
+        f"Metrics ({irt_model}, N={n})\n"
+        f"{'─' * 28}\n"
+        f"RMSRD      = {rm:.3f}\n"
+        f"QW κ       = {qwk:.3f}\n"
+        f"Mean |Δ|   = {mad:.1f}\n"
+        f"Spearman ρ = {rho:.3f}\n"
+        f"{'─' * 28}\n"
+        f"Max shift: {int(np.max(np.abs(deltas)))}\n"
+        f"|Δ|≥5: {(np.abs(deltas) >= 5).sum()}/{n}\n"
+        f"|Δ|≥10: {(np.abs(deltas) >= 10).sum()}/{n}"
     )
-    ax.text(0.1, 0.95, metrics_text, transform=ax.transAxes,
-            fontsize=11, verticalalignment='top', fontfamily='monospace',
-            bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes,
+            fontsize=6, verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='#f5f5f5', alpha=0.8))
 
-    plt.suptitle(f'Rank Divergence Summary: JSR vs IRT ({irt_model})',
-                 fontsize=14, fontweight='bold')
-    plt.tight_layout()
     path = os.path.join(RESULTS_DIR, f"divergence_summary_{irt_model}.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _save(fig, path)
     print(f"  Saved: {os.path.basename(path)}")
 
     return {'RMSRD': rm, 'QWK': qwk, 'MAD': mad, 'Spearman_rho': rho, 'N': n}
@@ -305,38 +321,45 @@ def plot_divergence_distribution(overall, irt_model):
 def plot_family_divergence(overall, irt_model):
     """Box/strip plot of rank delta by family + RMS per family."""
     df = compute_overall_ranks(overall, irt_model)
+    _c2 = C_RED if _HAS_FIG_STYLE else '#c0392b'
 
     present_fams = [f for f in FAM_ORDER if f in df['model_family'].values]
     if not present_fams:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig(n_panels=2, height_override=3.2)
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.2))
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
     # Left: box + strip
     ax = axes[0]
     box_data = [df[df['model_family'] == f]['Rank_Delta'].values
                 for f in present_fams]
     bp = ax.boxplot(box_data, labels=present_fams, patch_artist=True,
-                    widths=0.5, showfliers=False)
+                    widths=0.5, showfliers=False,
+                    medianprops=dict(color='black', lw=0.8))
     for patch, fam in zip(bp['boxes'], present_fams):
-        patch.set_facecolor(FAM_COLORS.get(fam, '#888'))
+        patch.set_facecolor(FAM_COLORS.get(fam, '#7f8c8d'))
         patch.set_alpha(0.6)
+        patch.set_linewidth(0.4)
 
-    # Overlay individual points
     for i, fam in enumerate(present_fams):
         fam_data = df[df['model_family'] == fam]['Rank_Delta'].values
         jitter = np.random.default_rng(42).uniform(-0.15, 0.15, len(fam_data))
         ax.scatter(np.full_like(fam_data, i + 1, dtype=float) + jitter,
-                   fam_data, color=FAM_COLORS.get(fam, '#888'),
-                   s=30, alpha=0.7, edgecolors='black', linewidths=0.3,
+                   fam_data, color=FAM_COLORS.get(fam, '#7f8c8d'),
+                   s=10, alpha=0.7, edgecolors='black', linewidths=0.2,
                    zorder=3)
 
-    ax.axhline(0, color='red', linewidth=1, linestyle='--')
-    ax.set_ylabel('Rank Δ (JSR − θ)', fontsize=11)
-    ax.set_title('Rank Divergence by Family', fontweight='bold')
-    ax.grid(axis='y', alpha=0.2)
+    ax.axhline(0, color=_c2, linewidth=0.6, linestyle='--')
+    ax.set_ylabel(r'Rank $\Delta$')
+    ax.set_title('Divergence by Family')
+    ax.tick_params(axis='x', rotation=30)
 
-    # Right: RMS rank shift per family (quadratic summary)
+    # Right: RMS rank shift per family
     ax = axes[1]
     fam_metrics = []
     for fam in present_fams:
@@ -351,26 +374,20 @@ def plot_family_divergence(overall, irt_model):
     if fam_metrics:
         fm_df = pd.DataFrame(fam_metrics).sort_values('RMS_shift',
                                                        ascending=True)
-        colors = [FAM_COLORS.get(f, '#888') for f in fm_df['family']]
+        colors = [FAM_COLORS.get(f, '#7f8c8d') for f in fm_df['family']]
         bars = ax.barh(fm_df['family'], fm_df['RMS_shift'], color=colors,
-                       edgecolor='black', linewidth=0.5)
+                       edgecolor='black', linewidth=0.3)
         for bar, val, md in zip(bars, fm_df['RMS_shift'],
                                 fm_df['mean_delta']):
-            direction = '→' if md > 0 else '←' if md < 0 else '='
-            ax.text(bar.get_width() + 0.2,
+            ax.text(bar.get_width() + 0.1,
                     bar.get_y() + bar.get_height() / 2,
-                    f'{val:.1f}  (bias {direction} {md:+.1f})',
-                    va='center', fontsize=9)
-        ax.set_xlabel('RMS Rank Shift (quadratic penalty)', fontsize=10)
-        ax.set_title('Rank Instability by Family', fontweight='bold')
-        ax.grid(axis='x', alpha=0.2)
+                    f'{val:.1f} ({md:+.1f})',
+                    va='center', fontsize=4)
+        ax.set_xlabel('RMS Rank Shift')
+        ax.set_title('Instability by Family')
 
-    plt.suptitle(f'Family-Level JSR vs IRT Divergence ({irt_model})',
-                 fontsize=14, fontweight='bold')
-    plt.tight_layout()
     path = os.path.join(RESULTS_DIR, f"family_divergence_{irt_model}.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _save(fig, path)
     print(f"  Saved: {os.path.basename(path)}")
 
 
@@ -383,6 +400,10 @@ def plot_language_divergence(lang_df, irt_model):
     df = compute_lang_ranks(lang_df, irt_model)
     if len(df) == 0:
         return None
+
+    _c1 = C_BLUE   if _HAS_FIG_STYLE else '#2471a3'
+    _c2 = C_RED    if _HAS_FIG_STYLE else '#c0392b'
+    _c3 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98'
 
     languages = sorted(df['language'].unique())
     lang_metrics = []
@@ -406,58 +427,55 @@ def plot_language_divergence(lang_df, irt_model):
 
     lm_df = pd.DataFrame(lang_metrics).sort_values('RMSRD', ascending=False)
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig(n_panels=3, height_override=3.5)
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=(5.5, 3.5))
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
-    # RMSRD
+    # RMSRD — red/purple/blue thresholds
     ax = axes[0]
-    colors = ['#e74c3c' if v > 0.15 else '#f39c12' if v > 0.10 else '#2ecc71'
+    colors = [_c2 if v > 0.15 else _c3 if v > 0.10 else _c1
               for v in lm_df['RMSRD']]
     ax.barh(lm_df['language'], lm_df['RMSRD'], color=colors,
-            edgecolor='black', linewidth=0.5)
+            edgecolor='black', linewidth=0.3)
     for i, (_, row) in enumerate(lm_df.iterrows()):
-        ax.text(row['RMSRD'] + 0.003, i, f"{row['RMSRD']:.3f}",
-                va='center', fontsize=9)
-    ax.set_xlabel('RMSRD (quadratic divergence)', fontsize=10)
-    ax.set_title('Rank Divergence by Language', fontweight='bold')
-    ax.grid(axis='x', alpha=0.2)
+        ax.text(row['RMSRD'] + 0.002, i, f"{row['RMSRD']:.3f}",
+                va='center', fontsize=4)
+    ax.set_xlabel('RMSRD')
+    ax.set_title('Divergence by Language')
 
-    # QWK
+    # QWK — blue/purple/red thresholds (inverted: high=good)
     ax = axes[1]
-    colors_qwk = ['#2ecc71' if v > 0.8 else '#f39c12' if v > 0.6
-                   else '#e74c3c' for v in lm_df['QWK']]
+    colors_qwk = [_c1 if v > 0.8 else _c3 if v > 0.6 else _c2
+                  for v in lm_df['QWK']]
     ax.barh(lm_df['language'], lm_df['QWK'], color=colors_qwk,
-            edgecolor='black', linewidth=0.5)
-    ax.axvline(0.8, color='green', linestyle='--', alpha=0.5,
+            edgecolor='black', linewidth=0.3)
+    ax.axvline(0.8, color=_c1, linestyle='--', alpha=0.5, lw=0.5,
                label='Excellent')
-    ax.axvline(0.6, color='orange', linestyle='--', alpha=0.5,
+    ax.axvline(0.6, color=_c3, linestyle='--', alpha=0.5, lw=0.5,
                label='Moderate')
     for i, (_, row) in enumerate(lm_df.iterrows()):
-        ax.text(max(0, row['QWK']) + 0.01, i, f"{row['QWK']:.3f}",
-                va='center', fontsize=9)
-    ax.set_xlabel('Quadratic Weighted κ', fontsize=10)
-    ax.set_title('Rank Agreement by Language', fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.grid(axis='x', alpha=0.2)
+        ax.text(max(0, row['QWK']) + 0.005, i, f"{row['QWK']:.3f}",
+                va='center', fontsize=4)
+    ax.set_xlabel(r'QW $\kappa$')
+    ax.set_title('Agreement by Language')
+    ax.legend(fontsize=4)
 
     # Spearman
     ax = axes[2]
     ax.barh(lm_df['language'], lm_df['Spearman_rho'],
-            color='steelblue', edgecolor='black', linewidth=0.5)
+            color=_c1, edgecolor='black', linewidth=0.3)
     for i, (_, row) in enumerate(lm_df.iterrows()):
-        ax.text(row['Spearman_rho'] + 0.01, i, f"{row['Spearman_rho']:.3f}",
-                va='center', fontsize=9)
-    ax.set_xlabel('Spearman ρ', fontsize=10)
-    ax.set_title('Rank Correlation by Language', fontweight='bold')
-    ax.grid(axis='x', alpha=0.2)
+        ax.text(row['Spearman_rho'] + 0.005, i, f"{row['Spearman_rho']:.3f}",
+                va='center', fontsize=4)
+    ax.set_xlabel(r'Spearman $\rho$')
+    ax.set_title('Correlation by Language')
 
-    plt.suptitle(
-        f'Per-Language Divergence: JSR vs (θ+δ) Ranking ({irt_model})',
-        fontsize=14, fontweight='bold')
-    plt.tight_layout()
     path = os.path.join(RESULTS_DIR,
                         f"language_divergence_{irt_model}.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _save(fig, path)
     print(f"  Saved: {os.path.basename(path)}")
 
     lm_df.to_csv(os.path.join(
@@ -480,26 +498,27 @@ def plot_family_lang_heatmap(lang_df, irt_model):
     present = [f for f in FAM_ORDER if f in pivot.index]
     pivot = pivot.reindex(present)
 
-    fig, ax = plt.subplots(
-        figsize=(max(8, len(pivot.columns) * 1.1),
-                 max(3, len(pivot) * 0.7)))
+    _cmap = CMAP_DIV if _HAS_FIG_STYLE else 'RdBu_r'
+    h = max(2.0, len(pivot) * 0.45)
+    if _HAS_FIG_STYLE:
+        fig, ax = make_fig(n_panels=1, height_override=h)
+        if isinstance(ax, np.ndarray): ax = ax[0]
+    else:
+        fig, ax = plt.subplots(figsize=(5.5, h))
+
     vmax = max(abs(pivot.values.min()), abs(pivot.values.max()), 3)
-    sns.heatmap(pivot, cmap='RdBu_r', center=0, vmin=-vmax, vmax=vmax,
-                annot=True, fmt='.1f', linewidths=1, linecolor='white',
-                cbar_kws={'label': 'Mean Rank Δ (JSR − IRT)',
-                          'shrink': 0.8},
+    sns.heatmap(pivot, cmap=_cmap, center=0, vmin=-vmax, vmax=vmax,
+                annot=True, fmt='.1f', annot_kws={'size': 5},
+                linewidths=0.5, linecolor='white',
+                cbar_kws={'label': r'Mean Rank $\Delta$', 'shrink': 0.8},
                 ax=ax)
-    ax.set_title(
-        f'Family × Language: Mean Rank Shift ({irt_model})\n'
-        f'Blue = JSR underestimates risk  |  Red = JSR overestimates risk',
-        fontsize=12, fontweight='bold')
+    ax.set_title(f'Family × Language Mean Rank Shift ({irt_model})')
     ax.set_ylabel('')
-    ax.set_xlabel('Language', fontsize=11)
-    plt.tight_layout()
+    ax.set_xlabel('Language')
+
     path = os.path.join(RESULTS_DIR,
                         f"family_lang_heatmap_{irt_model}.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _save(fig, path)
     print(f"  Saved: {os.path.basename(path)}")
 
 
@@ -542,6 +561,8 @@ def save_rank_tables(overall, lang_df, irt_model):
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    if _HAS_FIG_STYLE:
+        apply_style()
     print("=" * 60)
     print("RANK DIVERGENCE ANALYSIS v2 (with divergence metrics)")
     print("=" * 60)

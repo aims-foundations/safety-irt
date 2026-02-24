@@ -36,6 +36,21 @@ warnings.filterwarnings('ignore')
 
 from huggingface_hub import snapshot_download
 
+# ── INSERT THIS BLOCK: fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
+# ───────────────────────────────────────────────
+
 # ══════════════════════════════════════════════════════════════════════════
 # CONFIGURE THESE PATHS TO MATCH YOUR SETUP
 # ══════════════════════════════════════════════════════════════════════════
@@ -91,20 +106,23 @@ def extract_base_model(test_taker_str):
                   str(test_taker_str), flags=re.IGNORECASE).strip()
 
 
-FAM_COLORS = {
-    'GPT':      '#3498db',
-    'Claude':   '#9b59b6',
-    'Gemini':   '#2ecc71',
-    'Grok':     '#e74c3c',
-    'DeepSeek': '#f39c12',
-    'Other':    '#95a5a6',
+FAM_COLORS = FS_FAM_COLORS if _HAS_FIG_STYLE else {
+    'Claude':   '#7d3c98', 'GPT':      '#2471a3',
+    'Gemini':   '#c0392b', 'Grok':     '#e67e22',
+    'DeepSeek': '#27ae60', 'Other':    '#7f8c8d',
 }
 
+_m1 = C_BLUE   if _HAS_FIG_STYLE else '#2471a3'
+_m2 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98'
+_m3 = C_RED    if _HAS_FIG_STYLE else '#c0392b'
 MODEL_STYLES = {
-    '1PL': dict(linestyle='-',  color='#2c3e50'),
-    '2PL': dict(linestyle='--', color='#8e44ad'),
-    'GRM': dict(linestyle=':',  color='#16a085'),
+    '1PL': dict(linestyle='-',  color=_m1),
+    '2PL': dict(linestyle='--', color=_m2),
+    'GRM': dict(linestyle=':',  color=_m3),
 }
+
+_save = fs_savefig if _HAS_FIG_STYLE else \
+    lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -531,15 +549,15 @@ def scatter_with_ols(ax, x, y, families, style, label,
         mask = np.array(families) == fam
         if mask.sum():
             ax.scatter(x[mask], y[mask],
-                       color=col, s=55, alpha=alpha_pts,
-                       edgecolors='black', linewidths=0.35,
+                       color=col, s=18, alpha=alpha_pts,
+                       edgecolors='black', linewidths=0.25,
                        label=fam if show_families else None)
 
     r_p = r_s = sl = ic = np.nan
     if len(x) >= 3:
         sl, ic, _, _, _ = linregress(x, y)
         xr = np.linspace(x.min() - 0.15, x.max() + 0.15, 300)
-        ax.plot(xr, sl * xr + ic, linewidth=2.2,
+        ax.plot(xr, sl * xr + ic, linewidth=1.0,
                 label=f'OLS [{label}]', **style)
         r_p, _ = pearsonr(x, y)
         r_s, _ = spearmanr(x, y)
@@ -559,11 +577,13 @@ def plot_jsr_vs_theta(combined_theta):
         return pd.DataFrame()
 
     # n scatter panels + 1 OLS comparison panel
-    fig = plt.figure(figsize=(8 * n + 6, 7))
-    gs  = gridspec.GridSpec(1, n + 1,
-                            width_ratios=[3] * n + [2],
-                            wspace=0.35, figure=fig)
-    ax_right = fig.add_subplot(gs[n])
+    n_total = n + 1
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig(n_panels=n_total, height_override=3.5)
+    else:
+        fig, axes = plt.subplots(1, n_total, figsize=(5.5, 3.5))
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
     corr_rows = []
     for idx, mname in enumerate(model_names):
@@ -571,7 +591,7 @@ def plot_jsr_vs_theta(combined_theta):
             combined_theta['irt_model'] == mname
         ].dropna(subset=['theta', 'JSR'])
 
-        ax    = fig.add_subplot(gs[idx])
+        ax    = axes[idx]
         style = MODEL_STYLES.get(mname, {})
 
         r_p, r_s, sl, ic = scatter_with_ols(
@@ -584,32 +604,20 @@ def plot_jsr_vs_theta(combined_theta):
             show_families=(idx == 0),
         )
 
-        ax.axhline(0, color='gray', linewidth=0.8, linestyle=':')
-        ax.set_xlabel('theta  (IRT ability -- higher = safer)', fontsize=11)
-        ax.set_ylabel('JSR  (higher = less safe)',              fontsize=11)
-        ax.set_title(
-            f'{mname}: JSR vs theta\n'
-            f'r={r_p:.3f}, rho={r_s:.3f}, n={len(sub)}',
-            fontsize=12, fontweight='bold'
-        )
-        ax.grid(True, alpha=0.25)
-
-        # annotation box
-        ax.text(0.97, 0.05,
-                f'r={r_p:.3f}\nrho={r_s:.3f}\nn={len(sub)}',
-                transform=ax.transAxes, fontsize=9,
-                va='bottom', ha='right',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+        ax.axhline(0, color='gray', linewidth=0.5, linestyle=':')
+        ax.set_xlabel(r'$\theta$ (ability)')
+        ax.set_ylabel('JSR')
+        ax.set_title(f'{mname}: $r$={r_p:.3f}, n={len(sub)}')
 
         # family legend on first panel only
         if idx == 0:
             handles = [
                 plt.Line2D([0], [0], marker='o', color='w',
-                           markerfacecolor=c, markersize=9, label=f)
+                           markerfacecolor=c, markersize=3.5, label=f)
                 for f, c in FAM_COLORS.items()
             ]
-            ax.legend(handles=handles, fontsize=9, ncol=2,
-                      loc='upper left', framealpha=0.85)
+            ax.legend(handles=handles, fontsize=5, ncol=2,
+                      loc='upper left')
 
         corr_rows.append(dict(
             irt_model=mname, pearson_r=r_p,
@@ -623,23 +631,19 @@ def plot_jsr_vs_theta(combined_theta):
                 np.nanpercentile(all_x, 1) - 0.1,
                 np.nanpercentile(all_x, 99) + 0.1, 200
             )
-            ax_right.plot(xr, sl * xr + ic, linewidth=2.5,
-                          label=f'{mname}  r={r_p:.3f}', **style)
+            axes[n].plot(xr, sl * xr + ic, linewidth=1.0,
+                         label=f'{mname} $r$={r_p:.3f}', **style)
 
-    ax_right.axhline(0, color='gray', linewidth=0.8, linestyle=':')
-    ax_right.set_xlabel('theta', fontsize=12)
-    ax_right.set_ylabel('JSR',   fontsize=12)
-    ax_right.set_title('OLS Comparison\n' + ' | '.join(model_names),
-                       fontsize=12, fontweight='bold')
-    ax_right.legend(fontsize=10)
-    ax_right.grid(True, alpha=0.25)
+    ax_right = axes[n]
+    ax_right.axhline(0, color='gray', linewidth=0.5, linestyle=':')
+    ax_right.set_xlabel(r'$\theta$')
+    ax_right.set_ylabel('JSR')
+    ax_right.set_title('OLS Comparison')
+    ax_right.legend(fontsize=5)
 
-    fig.suptitle('Overall JSR vs IRT Ability (theta)',
-                 fontsize=16, fontweight='bold', y=1.01)
     out_path = os.path.join(RESULTS_DIR, "1_jsr_vs_theta.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print("  Saved: 1_jsr_vs_theta.png")
+    _save(fig, out_path)
+    print("  Saved: 1_jsr_vs_theta")
 
     return pd.DataFrame(corr_rows)
 
@@ -662,9 +666,12 @@ def plot_facets_per_model(lang_df, model_name):
     n_rows    = int(np.ceil(len(languages) / n_cols))
     style     = MODEL_STYLES.get(model_name, {})
 
-    fig, axes = plt.subplots(n_rows, n_cols,
-                             figsize=(n_cols * 5, n_rows * 4.5),
-                             squeeze=False)
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig_grid(n_rows, n_cols, height_override=2.0)
+    else:
+        fig, axes = plt.subplots(n_rows, n_cols,
+                                 figsize=(5.5, n_rows * 2.0),
+                                 squeeze=False)
     lang_rows = []
 
     for idx, lang in enumerate(languages):
@@ -678,8 +685,8 @@ def plot_facets_per_model(lang_df, model_name):
                 ax.scatter(
                     grp.loc[m, 'theta_minus_delta'],
                     grp.loc[m, 'JSR_lang'],
-                    color=col, s=40, alpha=0.78,
-                    edgecolors='black', linewidths=0.3
+                    color=col, s=12, alpha=0.78,
+                    edgecolors='black', linewidths=0.2
                 )
 
         r_p = r_s = np.nan
@@ -688,7 +695,7 @@ def plot_facets_per_model(lang_df, model_name):
                     grp['JSR_lang'].values)
             sl, ic, _, _, _ = linregress(x, y)
             xr = np.linspace(x.min() - 0.1, x.max() + 0.1, 100)
-            ax.plot(xr, sl * xr + ic, linewidth=1.8,
+            ax.plot(xr, sl * xr + ic, linewidth=0.8,
                     color=style.get('color', 'black'),
                     linestyle=style.get('linestyle', '-'))
             r_p, _ = pearsonr(x, y)
@@ -702,37 +709,17 @@ def plot_facets_per_model(lang_df, model_name):
                 mean_theta_minus_delta=grp['theta_minus_delta'].mean(),
             ))
 
-        ax.axhline(0, color='gray', linewidth=0.8, linestyle=':')
-        ax.set_title(f'{lang}  (r={r_p:.2f})',
-                     fontsize=11, fontweight='bold')
-        ax.set_xlabel('theta - delta', fontsize=9)
-        ax.set_ylabel('JSR',           fontsize=9)
-        ax.grid(True, alpha=0.2)
+        ax.axhline(0, color='gray', linewidth=0.4, linestyle=':')
+        ax.set_title(f'{lang} ($r$={r_p:.2f})')
+        ax.set_xlabel(r'$\theta - \delta$')
+        ax.set_ylabel('JSR')
 
     # hide unused panels
     for idx in range(len(languages), n_rows * n_cols):
         axes[idx // n_cols][idx % n_cols].set_visible(False)
 
-    # shared legend
-    handles = [
-        plt.Line2D([0], [0], marker='o', color='w',
-                   markerfacecolor=c, markersize=8, label=f)
-        for f, c in FAM_COLORS.items()
-    ]
-    fig.legend(handles=handles, loc='lower center',
-               ncol=len(FAM_COLORS), fontsize=10,
-               bbox_to_anchor=(0.5, -0.02), framealpha=0.9)
-    fig.suptitle(
-        f'{model_name}: Per-Language JSR vs (theta - delta)\n'
-        '(ability minus language aptitude)',
-        fontsize=14, fontweight='bold', y=1.01
-    )
-    plt.tight_layout()
-
     fname = f"2_{model_name}_jsr_vs_theta_minus_delta_facets.png"
-    fig.savefig(os.path.join(RESULTS_DIR, fname),
-                dpi=300, bbox_inches='tight')
-    plt.close()
+    _save(fig, os.path.join(RESULTS_DIR, fname))
     print(f"  Saved: {fname}")
 
     return pd.DataFrame(lang_rows)
@@ -751,7 +738,12 @@ def plot_language_summary(lang_df, lang_corr_all):
     model_names = [m for m in ['1PL', '2PL', 'GRM']
                    if m in lang_df['irt_model'].values]
 
-    fig, axes = plt.subplots(1, 3, figsize=(22, 7))
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig(n_panels=3, height_override=3.5)
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=(5.5, 3.5))
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
     # ── (i) grouped bar: r by language x model ───────────────────────────────
     ax = axes[0]
@@ -776,17 +768,15 @@ def plot_language_summary(lang_df, lang_corr_all):
             ax.bar(x + offsets[i], vals, w,
                    label=mn,
                    color=MODEL_STYLES[mn]['color'],
-                   edgecolor='black', linewidth=0.5, alpha=0.85)
+                   edgecolor='black', linewidth=0.3, alpha=0.85)
 
         ax.set_xticks(x)
-        ax.set_xticklabels(languages, rotation=45, ha='right')
+        ax.set_xticklabels(languages, rotation=55, ha='right')
 
-    ax.axhline(0, color='black', linewidth=0.8)
-    ax.set_ylabel('Pearson r  (JSR vs theta - delta)', fontsize=11)
-    ax.set_title('Correlation by Language x IRT Model',
-                 fontweight='bold', fontsize=12)
-    ax.legend(fontsize=10)
-    ax.grid(axis='y', alpha=0.3)
+    ax.axhline(0, color='black', linewidth=0.5)
+    ax.set_ylabel(r'Pearson $r$')
+    ax.set_title('Correlation by Language')
+    ax.legend(fontsize=5)
 
     # ── (ii) mean JSR by language ────────────────────────────────────────────
     ax = axes[1]
@@ -797,11 +787,9 @@ def plot_language_summary(lang_df, lang_corr_all):
     )
     ax.barh(mean_jsr.index, mean_jsr.values,
             color=sns.color_palette("Reds_r", len(languages)),
-            edgecolor='black', linewidth=0.5)
-    ax.set_xlabel('Mean JSR', fontsize=11)
-    ax.set_title('Mean JSR by Language',
-                 fontweight='bold', fontsize=12)
-    ax.grid(axis='x', alpha=0.3)
+            edgecolor='black', linewidth=0.3)
+    ax.set_xlabel('Mean JSR')
+    ax.set_title('JSR by Language')
 
     # ── (iii) OLS overlay: all models ────────────────────────────────────────
     ax = axes[2]
@@ -819,27 +807,18 @@ def plot_language_summary(lang_df, lang_corr_all):
             np.nanpercentile(x_all, 1) - 0.1,
             np.nanpercentile(x_all, 99) + 0.1, 200
         )
-        ax.plot(xr, sl * xr + ic, linewidth=2.5,
-                label=f'{mn}  r={r_p:.3f}',
+        ax.plot(xr, sl * xr + ic, linewidth=1.0,
+                label=f'{mn} $r$={r_p:.3f}',
                 **MODEL_STYLES[mn])
 
-    ax.axhline(0, color='gray', linewidth=0.8, linestyle=':')
-    ax.set_xlabel('theta - delta  (ability - aptitude)', fontsize=11)
-    ax.set_ylabel('JSR (language-specific)',              fontsize=11)
-    ax.set_title('OLS per IRT Model\n(all languages)',
-                 fontweight='bold', fontsize=12)
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.2)
+    ax.axhline(0, color='gray', linewidth=0.4, linestyle=':')
+    ax.set_xlabel(r'$\theta - \delta$')
+    ax.set_ylabel('JSR')
+    ax.set_title('OLS per IRT Model')
+    ax.legend(fontsize=5)
 
-    plt.suptitle('Language-Specific JSR vs (theta - delta)  --  Summary',
-                 fontsize=15, fontweight='bold')
-    plt.tight_layout()
-    fig.savefig(
-        os.path.join(RESULTS_DIR, "2_language_summary_all_models.png"),
-        dpi=300, bbox_inches='tight'
-    )
-    plt.close()
-    print("  Saved: 2_language_summary_all_models.png")
+    _save(fig, os.path.join(RESULTS_DIR, "2_language_summary_all_models.png"))
+    print("  Saved: 2_language_summary_all_models")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -858,12 +837,19 @@ def plot_rank_agreement(combined_theta):
         print("  Only one IRT model present -- rank agreement plot skipped.")
         return
 
-    fig, axes = plt.subplots(1, len(pairs),
-                             figsize=(7 * len(pairs), 6),
-                             squeeze=False)
+    n_pairs = len(pairs)
+    if _HAS_FIG_STYLE:
+        fig, axes_raw = make_fig(n_panels=n_pairs, height_override=3.5)
+    else:
+        fig, axes_raw = plt.subplots(1, n_pairs, figsize=(5.5, 3.5))
+    # normalize to list
+    if n_pairs == 1 and not isinstance(axes_raw, np.ndarray):
+        axes_all = [axes_raw]
+    else:
+        axes_all = list(axes_raw) if isinstance(axes_raw, np.ndarray) else [axes_raw]
 
     for idx, (m1, m2) in enumerate(pairs):
-        ax = axes[0][idx]
+        ax = axes_all[idx]
         d1 = (combined_theta[combined_theta['irt_model'] == m1]
               .set_index('test_taker')['theta'])
         d2 = (combined_theta[combined_theta['irt_model'] == m2]
@@ -888,33 +874,23 @@ def plot_rank_agreement(combined_theta):
             mask = np.array(fams) == fam
             if mask.sum():
                 ax.scatter(x[mask], y[mask],
-                           color=col, s=55, alpha=0.8,
-                           edgecolors='black', linewidths=0.35,
+                           color=col, s=18, alpha=0.8,
+                           edgecolors='black', linewidths=0.25,
                            label=fam)
 
         lims = [min(x.min(), y.min()) - 0.2,
                 max(x.max(), y.max()) + 0.2]
-        ax.plot(lims, lims, 'k--', alpha=0.5, label='Identity')
+        ax.plot(lims, lims, 'k--', alpha=0.5, lw=0.5, label='Identity')
 
         r_p, _ = pearsonr(x, y)
         r_s, _ = spearmanr(x, y)
-        ax.set_xlabel(f'theta  [{m1}]', fontsize=12)
-        ax.set_ylabel(f'theta  [{m2}]', fontsize=12)
-        ax.set_title(f'{m1} vs {m2}\nr={r_p:.3f}, rho={r_s:.3f}',
-                     fontsize=12, fontweight='bold')
-        ax.legend(fontsize=8, ncol=2)
-        ax.grid(True, alpha=0.25)
-        ax.set_aspect('equal')
+        ax.set_xlabel(rf'$\theta$ [{m1}]')
+        ax.set_ylabel(rf'$\theta$ [{m2}]')
+        ax.set_title(f'{m1} vs {m2}: $r$={r_p:.3f}')
+        ax.legend(fontsize=4, ncol=2)
 
-    fig.suptitle('theta Rank Agreement Across IRT Models',
-                 fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    fig.savefig(
-        os.path.join(RESULTS_DIR, "3_theta_rank_agreement.png"),
-        dpi=300, bbox_inches='tight'
-    )
-    plt.close()
-    print("  Saved: 3_theta_rank_agreement.png")
+    _save(fig, os.path.join(RESULTS_DIR, "3_theta_rank_agreement.png"))
+    print("  Saved: 3_theta_rank_agreement")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -922,6 +898,8 @@ def plot_rank_agreement(combined_theta):
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    if _HAS_FIG_STYLE:
+        apply_style()
     print("=" * 68)
     print("POST-HOC: JSR vs theta  and  JSR vs (theta - delta)")
     print("Loading from saved Experiment A / B results -- no re-fitting")

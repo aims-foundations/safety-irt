@@ -13,22 +13,22 @@ Output:
   - Per-language and per-category Spearman tables
   - Combined bar chart + heatmap comparing all metrics
 """
-import os
-import sys
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from fig_style import *
+
 import ast
 import warnings
-
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 
 import pandas as pd
 import numpy as np
 import torch
 from scipy.stats import spearmanr
-import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.lines import Line2D
 from huggingface_hub import snapshot_download
 
+apply_style()
 
 # --- CONFIGURATION ---
 try:
@@ -190,11 +190,11 @@ def score_labse(en_texts, target_texts):
     print("\n--- [1/4] LaBSE ---")
     from sentence_transformers import SentenceTransformer
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer("sentence-transformers/LaBSE", device=device)
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    model = SentenceTransformer("sentence-transformers/LaBSE", device=dev)
 
-    en_emb = model.encode(en_texts, batch_size=BATCH_SIZE_LABSE, convert_to_tensor=True, device=device)
-    tgt_emb = model.encode(target_texts, batch_size=BATCH_SIZE_LABSE, convert_to_tensor=True, device=device)
+    en_emb = model.encode(en_texts, batch_size=BATCH_SIZE_LABSE, convert_to_tensor=True, device=dev)
+    tgt_emb = model.encode(target_texts, batch_size=BATCH_SIZE_LABSE, convert_to_tensor=True, device=dev)
     sims = torch.nn.functional.cosine_similarity(en_emb, tgt_emb, dim=1).cpu().numpy()
 
     print(f"  Done. Mean={sims.mean():.4f}, Std={sims.std():.4f}")
@@ -282,12 +282,12 @@ def compute_all_scores():
     try:
         out["xcomet_xl"] = score_xcomet(en_texts, target_texts)
     except Exception as e:
-        print(f"  ⚠️  XCOMET-XL failed (likely OOM): {e}")
+        print(f"  XCOMET-XL failed (likely OOM): {e}")
         print(f"  Skipping XCOMET-XL. You may need a GPU or more RAM.")
         out["xcomet_xl"] = np.nan
 
     out.to_csv(OUTPUT_CSV_DATA, index=False)
-    print(f"\n✅ All scores saved to {OUTPUT_CSV_DATA}")
+    print(f"\nAll scores saved to {OUTPUT_CSV_DATA}")
     return out
 
 
@@ -305,7 +305,7 @@ METRIC_LABELS = {
 
 def compute_correlations_and_plot():
     if not os.path.exists(OUTPUT_CSV_DATA):
-        print(f"❌ {OUTPUT_CSV_DATA} not found. Run compute_all_scores() first.")
+        print(f"{OUTPUT_CSV_DATA} not found. Run compute_all_scores() first.")
         return
 
     df = pd.read_csv(OUTPUT_CSV_DATA)
@@ -362,39 +362,49 @@ def compute_correlations_and_plot():
         })
     global_df = pd.DataFrame(global_stats).sort_values("Spearman_Rho")
 
-    # --- PLOT ---
+    # --- PLOT: 2-panel (bar chart + heatmap) ---
     print(f"\nGenerating plot to {OUTPUT_PLOT}...")
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7), gridspec_kw={"width_ratios": [1, 2]})
+    fig, axes = plt.subplots(1, 2, figsize=(FULL_WIDTH, FULL_WIDTH * 0.45),
+                             gridspec_kw={"width_ratios": [1, 2]})
 
     # Panel 1: Global Spearman per metric
-    colors = ["#d62728" if x > 0 else "#1f77b4" for x in global_df["Spearman_Rho"]]
+    ax = axes[0]
+    colors = [C_RED if x > 0 else C_BLUE for x in global_df["Spearman_Rho"]]
     alphas = [1.0 if p < 0.05 else 0.3 for p in global_df["P_Value"]]
-    bars = axes[0].barh(global_df["Metric"], global_df["Spearman_Rho"], color=colors)
+    bars = ax.barh(global_df["Metric"], global_df["Spearman_Rho"], color=colors,
+                   edgecolor='black', linewidth=0.3)
     for bar, a in zip(bars, alphas):
         bar.set_alpha(a)
-    for i, (rho, p) in enumerate(zip(global_df["Spearman_Rho"], global_df["P_Value"])):
+    for i, (rho, p) in enumerate(zip(global_df["Spearman_Rho"],
+                                      global_df["P_Value"])):
         if p < 0.05:
-            offset = 0.005 if rho > 0 else -0.02
-            axes[0].text(rho + offset, i, "★", va="center", fontsize=14, fontweight="bold")
-    axes[0].axvline(0, color="black", linewidth=1)
-    axes[0].set_title("Global: Metric vs τ (Safety Tax)", fontsize=14, fontweight="bold")
-    axes[0].set_xlabel("Spearman's ρ")
-    axes[0].grid(axis="x", linestyle="--", alpha=0.5)
+            offset = 0.005 if rho > 0 else -0.015
+            ax.text(rho + offset, i, "*", va="center",
+                    fontweight="bold")
+    ax.axvline(0, color="black", linewidth=0.5)
+    ax.set_title(f'Global: metric vs {LABELS["tau_short"]}')
+    ax.set_xlabel(LABELS['rho'])
 
     # Panel 2: Heatmap of per-language rho by metric
-    pivot = lang_df.pivot_table(index="Language", columns="Metric", values="Spearman_Rho")
-    col_order = [METRIC_LABELS.get(m, m) for m in available_metrics if METRIC_LABELS.get(m, m) in pivot.columns]
+    ax = axes[1]
+    pivot = lang_df.pivot_table(index="Language", columns="Metric",
+                                values="Spearman_Rho")
+    col_order = [METRIC_LABELS.get(m, m) for m in available_metrics
+                 if METRIC_LABELS.get(m, m) in pivot.columns]
     pivot = pivot[col_order]
+    # Reorder rows to LANG_ORDER
+    present = [l for l in NON_EN_LANGS if l in pivot.index]
+    pivot = pivot.reindex(present)
 
-    sns.heatmap(pivot, annot=True, fmt=".3f", cmap="RdBu_r", center=0,
-                ax=axes[1], linewidths=0.5, cbar_kws={"label": "Spearman ρ"})
-    axes[1].set_title("Per-Language: Metric vs τ", fontsize=14, fontweight="bold")
-    axes[1].set_ylabel("")
+    sns.heatmap(pivot, annot=True, fmt=".3f", cmap=CMAP_DIV, center=0,
+                ax=ax, linewidths=0.5,
+                cbar_kws={"label": LABELS['rho'], "shrink": 0.8})
+    ax.set_title(f'Per-language: metric vs {LABELS["tau_short"]}')
+    ax.set_ylabel("")
 
-    plt.tight_layout()
-    plt.savefig(OUTPUT_PLOT, dpi=300)
-    print(f"✅ Plot saved to {OUTPUT_PLOT}")
+    savefig(fig, OUTPUT_PLOT)
+    print(f"Plot saved to {OUTPUT_PLOT}")
 
 
 if __name__ == "__main__":

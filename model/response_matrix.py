@@ -6,10 +6,18 @@ import sys
 import os
 from huggingface_hub import snapshot_download
 
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+from fig_style import *
+
+apply_style()
+
 # --- CONFIGURATION ---
 REPO_ID = "MaxZ119/safetyirt"
 FILENAME = "processed_data/Master_Passes0-9_Dataset.csv"
-RESULTS_DIR = "results/response_matrices_3150"
+RESULTS_DIR = "model/results/response_matrices_3150"
+RAW_RED  = "#FF0000"  # pure red
+RAW_BLUE = "#0000FF"  # pure blue
 
 def load_data_from_hf():
     print(f"--- 📥 DOWNLOADING DATA FROM HUGGING FACE: {REPO_ID} ---")
@@ -76,7 +84,7 @@ def generate_individual_matrices(df):
         fig_h = max(8, plot_data.shape[0] / 3)
         
         fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-        cmap = mcolors.ListedColormap(['white', '#ff6666', "#0000ff"])
+        cmap = mcolors.ListedColormap(['white',RAW_RED, RAW_BLUE])
         bounds = [-1.5, -0.5, 0.5, 1.5]
         norm = mcolors.BoundaryNorm(bounds, cmap.N)
         
@@ -89,8 +97,7 @@ def generate_individual_matrices(df):
         ax.set_yticklabels(pivot.index, fontsize=10)
         ax.set_xticks([]) # Remove cluttered x-ticks
 
-        plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, f"Matrix_Pass{p}.png"), dpi=200)
+        savefig(fig, os.path.join(RESULTS_DIR, f"Matrix_Pass{p}.png"))
         plt.close()
         print("Saved.")
 
@@ -128,7 +135,7 @@ def generate_mega_matrix(df):
     fig_h = max(10, mega_matrix.shape[0] / 3)
     
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    cmap = mcolors.ListedColormap(['white', '#ff6666', "#0000ff"])
+    cmap = mcolors.ListedColormap(['white',RAW_RED, RAW_BLUE])
     bounds = [-1.5, -0.5, 0.5, 1.5]
     norm = mcolors.BoundaryNorm(bounds, cmap.N)
     
@@ -149,9 +156,8 @@ def generate_mega_matrix(df):
         ax.text((i * block_width) + (block_width/2), len(sorted_models) + 1, f"PASS {p}", 
                 ha='center', va='top', fontsize=16, fontweight='bold')
 
-    plt.tight_layout()
     output_path = os.path.join(RESULTS_DIR, "MEGA_Matrix_AllPasses.png")
-    plt.savefig(output_path, dpi=300)
+    savefig(fig, output_path)
     plt.close()
     print(f"✅ MEGA Matrix Saved to {output_path}")
 

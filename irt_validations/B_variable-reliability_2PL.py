@@ -54,12 +54,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import seaborn as sns
+# ── fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
 from tqdm import tqdm
 from scipy import stats
 from scipy.stats import spearmanr, pearsonr
 import os
 import warnings
 import re
+import pickle
 
 warnings.filterwarnings('ignore')
 
@@ -210,7 +224,14 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
         logits = alpha[prompt_idx] * (ability - difficulty)
         pyro.sample("obs", dist.Bernoulli(logits=logits), obs=obs)
 
-def fit_irt(df_subset, anchor_ids, label="full"):
+def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
+    if cache_key:
+        cache_path = os.path.join(RESULTS_DIR, f"_cache_{cache_key}.pkl")
+        if os.path.exists(cache_path):
+            print(f"    ★ Loading cached IRT [{label}] from {cache_path}")
+            with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+
     pyro.clear_param_store()
 
     student_col = 'test_taker' if 'test_taker' in df_subset.columns else 'model'
@@ -282,7 +303,7 @@ def fit_irt(df_subset, anchor_ids, label="full"):
     # CHANGED 3b: extract alpha
     alpha_mean = samples['alpha'].detach().cpu().numpy().mean(axis=0).reshape(num_prompts).astype(np.float64)
 
-    return {
+    result = {
         'theta_mean': theta_mean, 'theta_std': theta_std,
         'beta_mean': beta_mean, 'beta_std': beta_std,
         'gamma_mean': gamma_mean,
@@ -293,6 +314,11 @@ def fit_irt(df_subset, anchor_ids, label="full"):
         'num_students': num_students, 'num_prompts': num_prompts, 'num_langs': num_langs,
         'losses': losses, 'converged_at': converged_at,
     }
+    if cache_key:
+        with open(cache_path, 'wb') as f:
+            pickle.dump(result, f)
+        print(f"    ★ Cached IRT [{label}] to {cache_path}")
+    return result
 
 # ══════════════════════════════════════════════════════════════════════════
 # DATA LOADING
@@ -353,31 +379,41 @@ def b1_response_consistency(df):
     print(f"Mixed (0<P<1):        {((consistency['mean_safe'] > 0) & (consistency['mean_safe'] < 1)).mean():.1%}")
     print(f"Mean entropy:          {consistency['entropy'].mean():.4f}")
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    axes[0].hist(consistency['mean_safe'], bins=50, edgecolor='black', alpha=0.7, color='steelblue')
-    axes[0].set_xlabel('Empirical P(safe)'); axes[0].set_ylabel('Count')
-    axes[0].set_title('Response Consistency', fontweight='bold')
-    axes[0].axvline(0.5, color='red', linestyle='--', alpha=0.7)
-    axes[1].hist(consistency['entropy'], bins=50, edgecolor='black', alpha=0.7, color='coral')
-    axes[1].set_xlabel('Entropy (bits)'); axes[1].set_ylabel('Count')
-    axes[1].set_title('Response Uncertainty', fontweight='bold')
-    lang_ent = consistency.groupby('language')['entropy'].mean().sort_values(ascending=False)
-    axes[2].barh(lang_ent.index, lang_ent.values, color=sns.color_palette("viridis", len(lang_ent)))
-    axes[2].set_xlabel('Mean Entropy'); axes[2].set_title('Uncertainty by Language', fontweight='bold')
-    axes[2].invert_yaxis()
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, "B1_response_consistency.png"), dpi=300, bbox_inches='tight')
-    plt.close(); print(f"  Saved: B1_response_consistency.png")
+    _c1, _c2, _c3 = (C_BLUE, C_RED, C_PURPLE) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b', '#7d3c98')
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
 
-    fig, ax = plt.subplots(figsize=(14, 6))
+    fig, axes = make_fig(n_panels=3, height_override=2.2) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 3, figsize=(5.5, 2.2))[::1]  # ensure tuple
+    if not isinstance(axes, np.ndarray): axes = np.array([axes])
+    axes[0].hist(consistency['mean_safe'], bins=50, edgecolor='black',
+                 linewidth=0.3, alpha=0.7, color=_c1)
+    axes[0].set_xlabel('Empirical $P$(safe)'); axes[0].set_ylabel('Count')
+    axes[0].set_title('Response Consistency')
+    axes[0].axvline(0.5, color=_c2, ls='--', alpha=0.7, lw=0.6)
+    axes[1].hist(consistency['entropy'], bins=50, edgecolor='black',
+                 linewidth=0.3, alpha=0.7, color=_c2)
+    axes[1].set_xlabel('Entropy (bits)'); axes[1].set_ylabel('Count')
+    axes[1].set_title('Response Uncertainty')
+    lang_ent = consistency.groupby('language')['entropy'].mean().sort_values(ascending=False)
+    axes[2].barh(lang_ent.index, lang_ent.values,
+                 color=sns.color_palette("viridis", len(lang_ent)),
+                 edgecolor='black', linewidth=0.3)
+    axes[2].set_xlabel('Mean Entropy'); axes[2].set_title('Uncertainty by Language')
+    axes[2].invert_yaxis()
+    _save(fig, os.path.join(RESULTS_DIR, "B1_response_consistency.png"))
+    print(f"  Saved: B1_response_consistency")
+
+    fig, ax = make_fig(n_panels=1, height_override=2.8) if _HAS_FIG_STYLE \
+        else plt.subplots(figsize=(5.5, 2.8))
+    if isinstance(ax, np.ndarray): ax = ax[0]
     mixed = consistency[consistency['n_passes'] >= 2]
     lang_order = mixed.groupby('language')['mean_safe'].mean().sort_values().index.tolist()
-    sns.violinplot(data=mixed, x='language', y='mean_safe', order=lang_order, palette='Set2', inner='quartile', ax=ax, cut=0)
-    ax.axhline(0.5, color='red', linestyle='--', alpha=0.5)
-    ax.set_title('P(safe) by Language', fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, "B1_psafe_by_language_violin.png"), dpi=300, bbox_inches='tight')
-    plt.close(); print(f"  Saved: B1_psafe_by_language_violin.png")
+    sns.violinplot(data=mixed, x='language', y='mean_safe', order=lang_order,
+                   palette='Set2', inner='quartile', ax=ax, cut=0, linewidth=0.5)
+    ax.axhline(0.5, color=_c2, ls='--', alpha=0.5, lw=0.6)
+    ax.set_title('$P$(safe) by Language')
+    _save(fig, os.path.join(RESULTS_DIR, "B1_psafe_by_language_violin.png"))
+    print(f"  Saved: B1_psafe_by_language_violin")
 
     consistency.to_csv(os.path.join(RESULTS_DIR, "B1_response_consistency.csv"), index=False)
     return consistency
@@ -409,8 +445,8 @@ def b2_split_half_reliability(df, anchor_ids):
 
     print(f"  Half 1: {len(df_h1):,}, Half 2: {len(df_h2):,}, Common students: {len(common_students)}")
 
-    r1 = fit_irt(df_h1, anchor_ids, label="half-1")
-    r2 = fit_irt(df_h2, anchor_ids, label="half-2")
+    r1 = fit_irt(df_h1, anchor_ids, label="half-1", cache_key="b2_half1")
+    r2 = fit_irt(df_h2, anchor_ids, label="half-2", cache_key="b2_half2")
 
     # Match θ
     theta_pairs = []
@@ -467,41 +503,53 @@ def b2_split_half_reliability(df, anchor_ids):
         print(f"  τ: r={r_tau:.4f}, SB={sb_tau:.4f}")
 
     # Plot
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+    _c1, _c2, _c3 = (C_BLUE, C_RED, C_PURPLE) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b', '#7d3c98')
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+    _L = LABELS if _HAS_FIG_STYLE else {'theta_short': 'θ', 'beta_short': 'β', 'tau_short': 'τ'}
+
+    fig, axes = make_fig(n_panels=3, height_override=2.2) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 3, figsize=(5.5, 2.2))
+    if not isinstance(axes, np.ndarray): axes = np.array([axes])
     ax = axes[0]
-    ax.scatter(theta_df['theta_h1'], theta_df['theta_h2'], alpha=0.6, s=50, edgecolors='black', linewidth=0.5, c='steelblue')
-    lims = [min(theta_df['theta_h1'].min(), theta_df['theta_h2'].min()) - 0.3, max(theta_df['theta_h1'].max(), theta_df['theta_h2'].max()) + 0.3]
-    ax.plot(lims, lims, 'r--', alpha=0.7, label='Perfect agreement')
-    ax.set_xlabel('θ (Half 1)'); ax.set_ylabel('θ (Half 2)')
-    ax.set_title(f'Split-Half: θ\nr = {r_theta:.3f}, SB = {sb_theta:.3f}', fontweight='bold')
-    ax.legend(); ax.set_aspect('equal'); ax.grid(True, alpha=0.3)
+    ax.scatter(theta_df['theta_h1'], theta_df['theta_h2'], alpha=0.6, s=10,
+               edgecolors='black', linewidth=0.2, c=_c1)
+    lims = [min(theta_df['theta_h1'].min(), theta_df['theta_h2'].min()) - 0.3,
+            max(theta_df['theta_h1'].max(), theta_df['theta_h2'].max()) + 0.3]
+    ax.plot(lims, lims, color=_c2, ls='--', alpha=0.7, lw=0.6)
+    ax.set_xlabel(f'{_L["theta_short"]} (Half 1)')
+    ax.set_ylabel(f'{_L["theta_short"]} (Half 2)')
+    ax.set_title(f'Split-Half: {_L["theta_short"]}\n$r$ = {r_theta:.3f}, SB = {sb_theta:.3f}')
 
     ax = axes[1]
     if len(beta_df) >= 3:
-        ax.scatter(beta_df['beta_h1'], beta_df['beta_h2'], alpha=0.4, s=15, color='forestgreen')
-        lims_b = [min(beta_df['beta_h1'].min(), beta_df['beta_h2'].min()) - 0.3, max(beta_df['beta_h1'].max(), beta_df['beta_h2'].max()) + 0.3]
-        ax.plot(lims_b, lims_b, 'r--', alpha=0.7)
-        ax.set_title(f'Split-Half: β\nr = {r_beta:.3f}, SB = {sb_beta:.3f}', fontweight='bold')
-    ax.set_xlabel('β (Half 1)'); ax.set_ylabel('β (Half 2)')
-    ax.set_aspect('equal'); ax.grid(True, alpha=0.3)
+        ax.scatter(beta_df['beta_h1'], beta_df['beta_h2'], alpha=0.4, s=4,
+                   color=_c3)
+        lims_b = [min(beta_df['beta_h1'].min(), beta_df['beta_h2'].min()) - 0.3,
+                  max(beta_df['beta_h1'].max(), beta_df['beta_h2'].max()) + 0.3]
+        ax.plot(lims_b, lims_b, color=_c2, ls='--', alpha=0.7, lw=0.6)
+        ax.set_title(f'Split-Half: {_L["beta_short"]}\n$r$ = {r_beta:.3f}, SB = {sb_beta:.3f}')
+    ax.set_xlabel(f'{_L["beta_short"]} (Half 1)')
+    ax.set_ylabel(f'{_L["beta_short"]} (Half 2)')
 
     ax = axes[2]
     if len(tau_df) >= 3:
-        lang_colors = {l: plt.cm.Set2(i / max(1, len(common_langs_set))) for i, l in enumerate(sorted(common_langs_set))}
+        lang_colors = {l: plt.cm.Set2(i / max(1, len(common_langs_set)))
+                       for i, l in enumerate(sorted(common_langs_set))}
         for lang in sorted(common_langs_set):
             if lang == 'en': continue
             sub = tau_df[tau_df['language'] == lang]
-            ax.scatter(sub['tau_h1'], sub['tau_h2'], alpha=0.3, s=10, label=lang, color=lang_colors.get(lang))
-        lims_t = [min(tau_df['tau_h1'].min(), tau_df['tau_h2'].min()) - 0.3, max(tau_df['tau_h1'].max(), tau_df['tau_h2'].max()) + 0.3]
-        ax.plot(lims_t, lims_t, 'r--', alpha=0.7)
-        ax.set_title(f'Split-Half: τ\nr = {r_tau:.3f}, SB = {sb_tau:.3f}', fontweight='bold')
-        ax.legend(fontsize=7, ncol=2, loc='upper left')
-    ax.set_xlabel('τ (Half 1)'); ax.set_ylabel('τ (Half 2)')
-    ax.set_aspect('equal'); ax.grid(True, alpha=0.3)
+            ax.scatter(sub['tau_h1'], sub['tau_h2'], alpha=0.3, s=3,
+                       label=lang, color=lang_colors.get(lang))
+        lims_t = [min(tau_df['tau_h1'].min(), tau_df['tau_h2'].min()) - 0.3,
+                  max(tau_df['tau_h1'].max(), tau_df['tau_h2'].max()) + 0.3]
+        ax.plot(lims_t, lims_t, color=_c2, ls='--', alpha=0.7, lw=0.6)
+        ax.set_title(f'Split-Half: {_L["tau_short"]}\n$r$ = {r_tau:.3f}, SB = {sb_tau:.3f}')
+        ax.legend(fontsize=4, ncol=3, loc='upper left')
+    ax.set_xlabel(f'{_L["tau_short"]} (Half 1)')
+    ax.set_ylabel(f'{_L["tau_short"]} (Half 2)')
 
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, "B2_split_half_reliability.png"), dpi=300, bbox_inches='tight')
-    plt.close(); print(f"  Saved: B2_split_half_reliability.png")
+    _save(fig, os.path.join(RESULTS_DIR, "B2_split_half_reliability.png"))
+    print(f"  Saved: B2_split_half_reliability")
 
     pd.DataFrame([
         {'parameter': 'θ', 'pearson_r': r_theta, 'spearman_brown': sb_theta, 'n': len(theta_df)},
@@ -540,15 +588,25 @@ def b3_icc_analysis(df):
     icc_df = pd.DataFrame(icc_results)
     if len(icc_df) == 0:
         print("  WARNING: Could not compute ICC."); return None
-    fig, ax = plt.subplots(figsize=(10, 6))
+    _c1, _c2 = (C_BLUE, C_RED) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b')
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+
+    fig, ax = make_fig(n_panels=1, height_override=3.0) if _HAS_FIG_STYLE \
+        else plt.subplots(figsize=(5.5, 3.0))
+    if isinstance(ax, np.ndarray): ax = ax[0]
     icc_sorted = icc_df.sort_values('ICC(2,1)', ascending=True)
-    colors = ['#2ecc71' if v > 0.75 else '#f1c40f' if v > 0.5 else '#e74c3c' for v in icc_sorted['ICC(2,1)']]
-    bars = ax.barh(icc_sorted['language'], icc_sorted['ICC(2,1)'], color=colors, edgecolor='black', linewidth=0.5)
-    ax.axvline(0.75, color='green', linestyle='--', alpha=0.5, label='Excellent')
-    ax.axvline(0.5, color='orange', linestyle='--', alpha=0.5, label='Moderate')
-    for bar, val in zip(bars, icc_sorted['ICC(2,1)']): ax.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.3f}', va='center')
-    ax.set_xlabel('ICC(2,1)'); ax.set_title('Test-Retest Reliability by Language', fontweight='bold'); ax.legend(); ax.set_xlim(0, 1)
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "B3_icc_by_language.png"), dpi=300, bbox_inches='tight'); plt.close()
+    colors = [_c1 if v > 0.75 else '#e67e22' if v > 0.5 else _c2
+              for v in icc_sorted['ICC(2,1)']]
+    bars = ax.barh(icc_sorted['language'], icc_sorted['ICC(2,1)'],
+                   color=colors, edgecolor='black', linewidth=0.3)
+    ax.axvline(0.75, color=_c1, ls='--', alpha=0.5, lw=0.6, label='Excellent')
+    ax.axvline(0.5, color='#e67e22', ls='--', alpha=0.5, lw=0.6, label='Moderate')
+    for bar, val in zip(bars, icc_sorted['ICC(2,1)']):
+        ax.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2,
+                f'{val:.3f}', va='center', fontsize=6)
+    ax.set_xlabel('ICC(2,1)'); ax.set_title('Test-Retest Reliability by Language')
+    ax.legend(fontsize=5); ax.set_xlim(0, 1.05)
+    _save(fig, os.path.join(RESULTS_DIR, "B3_icc_by_language.png"))
     icc_df.to_csv(os.path.join(RESULTS_DIR, "B3_icc_results.csv"), index=False)
     return icc_df
 
@@ -579,18 +637,35 @@ def b4_stochastic_profiles(df, consistency_df):
     for _, row in boundary_by_model.sort_values('pct_boundary', ascending=False).head(10).iterrows():
         print(f"    {row['base_model']:<50}: {row['pct_boundary']:.1%}")
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    _c1, _c2, _c3 = (C_BLUE, C_RED, C_PURPLE) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b', '#7d3c98')
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+
+    fig, axes = make_fig(n_panels=2, height_override=3.0) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 2, figsize=(5.5, 3.0))
+    if not isinstance(axes, np.ndarray): axes = np.array([axes])
     lang_comp = []
     for lang in sorted(multi_pass['language'].unique()):
         ld = multi_pass[multi_pass['language'] == lang]; total = len(ld)
-        lang_comp.append({'language': lang, 'Det. Safe': (ld['mean_safe'] == 1.0).sum()/total, 'Mostly Safe': ((ld['mean_safe'] >= 0.8) & (ld['mean_safe'] < 1.0)).sum()/total, 'Boundary': ld['is_boundary'].sum()/total, 'Mostly Unsafe': ((ld['mean_safe'] > 0) & (ld['mean_safe'] <= 0.2)).sum()/total, 'Det. Unsafe': (ld['mean_safe'] == 0.0).sum()/total})
-    pd.DataFrame(lang_comp).set_index('language').plot(kind='barh', stacked=True, ax=axes[0], color=['#2ecc71', '#82e0aa', '#f9e79f', '#f5b041', '#e74c3c'])
-    axes[0].set_title('Composition by Language', fontweight='bold'); axes[0].legend(fontsize=8)
+        lang_comp.append({'language': lang,
+            'Det. Safe': (ld['mean_safe'] == 1.0).sum()/total,
+            'Mostly Safe': ((ld['mean_safe'] >= 0.8) & (ld['mean_safe'] < 1.0)).sum()/total,
+            'Boundary': ld['is_boundary'].sum()/total,
+            'Mostly Unsafe': ((ld['mean_safe'] > 0) & (ld['mean_safe'] <= 0.2)).sum()/total,
+            'Det. Unsafe': (ld['mean_safe'] == 0.0).sum()/total})
+    pd.DataFrame(lang_comp).set_index('language').plot(
+        kind='barh', stacked=True, ax=axes[0],
+        color=[_c1, '#82c6b5', '#f0d070', '#e67e22', _c2])
+    axes[0].set_title('Composition by Language')
+    axes[0].legend(fontsize=4, loc='lower right')
     for _, row in boundary_by_lang.iterrows():
-        axes[1].scatter(row['pct_boundary'], row['mean_entropy'], s=100)
-        axes[1].annotate(row['language'], (row['pct_boundary'], row['mean_entropy']), fontsize=10)
-    axes[1].set_xlabel('% Boundary'); axes[1].set_ylabel('Mean Entropy'); axes[1].set_title('Uncertainty Profile', fontweight='bold'); axes[1].grid(True, alpha=0.3)
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "B4_stochastic_profiles.png"), dpi=300, bbox_inches='tight'); plt.close()
+        axes[1].scatter(row['pct_boundary'], row['mean_entropy'],
+                        s=25, color=_c3, edgecolors='black', linewidth=0.3)
+        axes[1].annotate(row['language'],
+                         (row['pct_boundary'], row['mean_entropy']),
+                         fontsize=5, xytext=(2, 2), textcoords='offset points')
+    axes[1].set_xlabel('\\% Boundary'); axes[1].set_ylabel('Mean Entropy')
+    axes[1].set_title('Uncertainty Profile')
+    _save(fig, os.path.join(RESULTS_DIR, "B4_stochastic_profiles.png"))
 
     prompt_entropy = multi_pass.groupby('id').agg(mean_entropy=('entropy', 'mean'), mean_psafe=('mean_safe', 'mean'), n_models=('base_model', 'nunique'), n_langs=('language', 'nunique')).reset_index().sort_values('mean_entropy', ascending=False)
     print(f"\n  Top 10 uncertain prompts:")
@@ -610,7 +685,7 @@ def b5_empirical_icc_validation(df, consistency_df, anchor_ids):
     print("B5: EMPIRICAL ICC VALIDATION")
     print("=" * 70)
 
-    results = fit_irt(df, anchor_ids, label="full-B5")
+    results = fit_irt(df, anchor_ids, label="full-B5", cache_key="b5_full")
 
     validation_rows = []
     skipped = {'no_student': 0, 'no_prompt': 0, 'no_lang': 0}
@@ -663,59 +738,82 @@ def b5_empirical_icc_validation(df, consistency_df, anchor_ids):
             print(f"    {lang}: r={r_l:.4f}, n={len(sub):,}")
 
     # Plot calibration
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+    _c1, _c2, _c3 = (C_BLUE, C_RED, C_PURPLE) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b', '#7d3c98')
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+    _L = LABELS if _HAS_FIG_STYLE else {'theta_short': 'θ'}
+
+    fig, axes = make_fig(n_panels=3, height_override=2.2) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 3, figsize=(5.5, 2.2))
+    if not isinstance(axes, np.ndarray): axes = np.array([axes])
     ax = axes[0]
-    ax.scatter(val_df['irt_p'], val_df['empirical_p'], alpha=0.02, s=3, color='steelblue')
-    ax.plot([0, 1], [0, 1], 'r--', linewidth=1.5, label='Perfect')
+    ax.scatter(val_df['irt_p'], val_df['empirical_p'], alpha=0.02, s=1, color=_c1)
+    ax.plot([0, 1], [0, 1], color=_c2, ls='--', lw=0.6, label='Perfect')
     val_df['irt_bin'] = pd.cut(val_df['irt_p'], bins=np.linspace(0, 1, 21), labels=False)
-    cal = val_df.groupby('irt_bin').agg(mean_irt=('irt_p', 'mean'), mean_emp=('empirical_p', 'mean')).dropna()
-    ax.plot(cal['mean_irt'], cal['mean_emp'], 'ko-', markersize=6, linewidth=2, label='Binned')
-    ax.set_xlabel('IRT P(safe)'); ax.set_ylabel('Empirical P(safe)')
-    ax.set_title(f'Calibration\nr={r_pearson:.3f}, RMSE={rmse:.3f}', fontweight='bold')
-    ax.legend(); ax.set_aspect('equal'); ax.grid(True, alpha=0.3)
+    cal = val_df.groupby('irt_bin').agg(mean_irt=('irt_p', 'mean'),
+                                         mean_emp=('empirical_p', 'mean')).dropna()
+    ax.plot(cal['mean_irt'], cal['mean_emp'], 'ko-', markersize=3, linewidth=1, label='Binned')
+    ax.set_xlabel('IRT $P$(safe)'); ax.set_ylabel('Empirical $P$(safe)')
+    ax.set_title(f'Calibration\n$r$={r_pearson:.3f}, RMSE={rmse:.3f}')
+    ax.legend(fontsize=5)
 
     ax = axes[1]
-    palette = sns.color_palette("tab10", val_df['language'].nunique())
+    palette = sns.color_palette("Set2", val_df['language'].nunique())
     for i, lang in enumerate(sorted(val_df['language'].unique())):
         sub = val_df[val_df['language'] == lang]
         if len(sub) >= 10:
             r_l, _ = pearsonr(sub['empirical_p'], sub['irt_p'])
-            ax.scatter(sub['irt_p'], sub['empirical_p'], alpha=0.05, s=3, color=palette[i], label=f'{lang} (r={r_l:.2f})')
-    ax.plot([0, 1], [0, 1], 'r--'); ax.set_xlabel('IRT P(safe)'); ax.set_ylabel('Empirical P(safe)')
-    ax.set_title('By Language', fontweight='bold'); ax.legend(fontsize=7, ncol=2, markerscale=5); ax.set_aspect('equal'); ax.grid(True, alpha=0.3)
+            ax.scatter(sub['irt_p'], sub['empirical_p'], alpha=0.05, s=1,
+                       color=palette[i], label=f'{lang} ({r_l:.2f})')
+    ax.plot([0, 1], [0, 1], color=_c2, ls='--', lw=0.6)
+    ax.set_xlabel('IRT $P$(safe)'); ax.set_ylabel('Empirical $P$(safe)')
+    ax.set_title('By Language')
+    ax.legend(fontsize=3.5, ncol=2, markerscale=5)
 
     ax = axes[2]; val_df['residual'] = val_df['empirical_p'] - val_df['irt_p']
-    ax.hist(val_df['residual'], bins=100, edgecolor='black', alpha=0.7, color='steelblue')
-    ax.axvline(0, color='red', linestyle='--')
+    ax.hist(val_df['residual'], bins=100, edgecolor='black', linewidth=0.2,
+            alpha=0.7, color=_c1)
+    ax.axvline(0, color=_c2, ls='--', lw=0.6)
     ax.set_xlabel('Residual'); ax.set_ylabel('Count')
-    ax.set_title(f'Residuals\nMean={val_df["residual"].mean():.4f}, Std={val_df["residual"].std():.4f}', fontweight='bold')
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "B5_calibration.png"), dpi=300, bbox_inches='tight'); plt.close()
+    ax.set_title(f'Residuals\nMean={val_df["residual"].mean():.4f}, '
+                 f'Std={val_df["residual"].std():.4f}')
+    _save(fig, os.path.join(RESULTS_DIR, "B5_calibration.png"))
 
     # Example ICCs
     prompt_var = val_df.groupby('prompt_id')['empirical_p'].std().sort_values(ascending=False)
     example_prompts = prompt_var.head(6).index.tolist()
-    fig, axes_icc = plt.subplots(2, 3, figsize=(18, 10)); axes_flat = axes_icc.flatten()
+    fig, axes_icc = make_fig_grid(2, 3, height_override=1.8) if _HAS_FIG_STYLE \
+        else plt.subplots(2, 3, figsize=(5.5, 3.6))
+    axes_flat = axes_icc.flatten()
     for idx, pid in enumerate(example_prompts):
-        ax = axes_flat[idx]; p_data = val_df[val_df['prompt_id'] == pid].sort_values('theta')
+        ax = axes_flat[idx]
+        p_data = val_df[val_df['prompt_id'] == pid].sort_values('theta')
         if len(p_data) < 5: continue
         for lang in sorted(p_data['language'].unique()):
-            sub = p_data[p_data['language'] == lang]; ax.scatter(sub['theta'], sub['empirical_p'], alpha=0.6, s=30, label=lang)
+            sub = p_data[p_data['language'] == lang]
+            ax.scatter(sub['theta'], sub['empirical_p'], alpha=0.6, s=6, label=lang)
         if pid in results['prompt_map']:
             pi = results['prompt_map'][pid]
-            theta_range = np.linspace(p_data['theta'].min() - 0.5, p_data['theta'].max() + 0.5, 200)
+            theta_range = np.linspace(p_data['theta'].min() - 0.5,
+                                      p_data['theta'].max() + 0.5, 200)
             diff_en = _to_scalar(results['beta_mean'][pi])
             alpha_i = _to_scalar(results['alpha_mean'][pi])
-            ax.plot(theta_range, 1/(1+np.exp(-alpha_i*(theta_range - diff_en))), 'k-', linewidth=2, label='IRT (en)')
+            ax.plot(theta_range,
+                    1/(1+np.exp(-alpha_i*(theta_range - diff_en))),
+                    'k-', linewidth=1, label='IRT (en)')
             for show_lang in ['bn', 'jv', 'sw']:
                 if show_lang in results['lang_map']:
                     li = results['lang_map'][show_lang]
-                    diff_l = diff_en + _to_scalar(results['gamma_mean'][li]) + _to_scalar(results['tau_mean'][pi, li])
-                    ax.plot(theta_range, 1/(1+np.exp(-alpha_i*(theta_range - diff_l))), '--', linewidth=1.5, label=f'IRT ({show_lang})')
+                    diff_l = diff_en + _to_scalar(results['gamma_mean'][li]) + \
+                             _to_scalar(results['tau_mean'][pi, li])
+                    ax.plot(theta_range,
+                            1/(1+np.exp(-alpha_i*(theta_range - diff_l))),
+                            '--', linewidth=0.8, label=f'IRT ({show_lang})')
                     break
-        ax.set_xlabel('θ'); ax.set_ylabel('P(safe)'); ax.set_title(f'Prompt {pid}', fontweight='bold')
-        ax.legend(fontsize=7, ncol=2); ax.set_ylim(-0.05, 1.05); ax.grid(True, alpha=0.3)
-    plt.suptitle('Empirical vs IRT ICCs', fontsize=14, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.95]); plt.savefig(os.path.join(RESULTS_DIR, "B5_example_ICCs.png"), dpi=300, bbox_inches='tight'); plt.close()
+        ax.set_xlabel(_L.get('theta_short', 'θ'))
+        ax.set_ylabel('$P$(safe)')
+        ax.set_title(f'Prompt {pid}')
+        ax.legend(fontsize=3.5, ncol=2); ax.set_ylim(-0.05, 1.05)
+    _save(fig, os.path.join(RESULTS_DIR, "B5_example_ICCs.png"))
 
     val_df.to_csv(os.path.join(RESULTS_DIR, "B5_validation_data.csv"), index=False)
     pd.DataFrame([{'pearson_r': r_pearson, 'spearman_rho': r_spearman, 'rmse': rmse, 'mae': mae, 'n': len(val_df)}]).to_csv(os.path.join(RESULTS_DIR, "B5_calibration_summary.csv"), index=False)
@@ -758,23 +856,45 @@ def b6_temperature_decomposition(df):
     for fam, row in decomp_df.groupby('model_family')['between_frac'].agg(['mean', 'median', 'count']).sort_values('mean', ascending=False).iterrows():
         print(f"    {fam:<12}: mean={row['mean']:.3f}")
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
-    axes[0].hist(decomp_df['between_frac'], bins=50, edgecolor='black', alpha=0.7, color='steelblue')
-    axes[0].axvline(decomp_df['between_frac'].mean(), color='red', linestyle='--', label=f'Mean={decomp_df["between_frac"].mean():.3f}')
-    axes[0].set_xlabel('Between-Temp Fraction'); axes[0].set_title('Variance Decomposition', fontweight='bold'); axes[0].legend()
+    _c1, _c2 = (C_BLUE, C_RED) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b')
+    _fc = FS_FAM_COLORS if _HAS_FIG_STYLE else {'Claude': '#7d3c98', 'GPT': '#2471a3',
+        'Gemini': '#c0392b', 'Grok': '#e67e22', 'DeepSeek': '#27ae60', 'Other': '#7f8c8d'}
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+
+    fig, axes = make_fig(n_panels=3, height_override=2.2) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 3, figsize=(5.5, 2.2))
+    if not isinstance(axes, np.ndarray): axes = np.array([axes])
+    axes[0].hist(decomp_df['between_frac'], bins=50, edgecolor='black',
+                 linewidth=0.2, alpha=0.7, color=_c1)
+    axes[0].axvline(decomp_df['between_frac'].mean(), color=_c2, ls='--',
+                    lw=0.6, label=f'Mean={decomp_df["between_frac"].mean():.3f}')
+    axes[0].set_xlabel('Between-Temp Fraction')
+    axes[0].set_title('Variance Decomposition'); axes[0].legend(fontsize=5)
     fam_decomp = decomp_df.groupby('model_family')['between_frac'].agg(['mean']).sort_values('mean', ascending=False)
     fam_order = fam_decomp.index.tolist()
-    bp = axes[1].boxplot([decomp_df[decomp_df['model_family'] == f]['between_frac'].values for f in fam_order], labels=fam_order, patch_artist=True)
-    for patch, c in zip(bp['boxes'], sns.color_palette("Set2", len(fam_order))): patch.set_facecolor(c)
-    axes[1].set_title('By Model Family', fontweight='bold')
+    bp = axes[1].boxplot(
+        [decomp_df[decomp_df['model_family'] == f]['between_frac'].values for f in fam_order],
+        labels=fam_order, patch_artist=True, widths=0.5,
+        medianprops=dict(color='black', lw=0.8),
+        flierprops=dict(markersize=2))
+    for patch, fam in zip(bp['boxes'], fam_order):
+        patch.set_facecolor(_fc.get(fam, '#7f8c8d'))
+        patch.set_linewidth(0.4)
+    axes[1].set_title('By Model Family')
+    axes[1].tick_params(axis='x', labelsize=5, rotation=30)
     temp_jsr = df.groupby(['temp_setting', 'language']).agg(jsr=('score', lambda x: 1 - x.mean())).reset_index()
-    temp_order = [t for t in ['Low_Creativity', 'Standard', 'High_Risk', 'Chaos'] if t in temp_jsr['temp_setting'].values]
+    temp_order = [t for t in ['Low_Creativity', 'Standard', 'High_Risk', 'Chaos']
+                  if t in temp_jsr['temp_setting'].values]
     for lang in sorted(temp_jsr['language'].unique()):
         ld = temp_jsr[temp_jsr['language'] == lang].set_index('temp_setting').reindex(temp_order)
-        if not ld['jsr'].isna().all(): axes[2].plot(range(len(temp_order)), ld['jsr'].values, 'o-', label=lang, alpha=0.7)
-    axes[2].set_xticks(range(len(temp_order))); axes[2].set_xticklabels(temp_order, rotation=30)
-    axes[2].set_ylabel('JSR'); axes[2].set_title('JSR by Temperature', fontweight='bold'); axes[2].legend(fontsize=7, ncol=2)
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "B6_temperature_decomposition.png"), dpi=300, bbox_inches='tight'); plt.close()
+        if not ld['jsr'].isna().all():
+            axes[2].plot(range(len(temp_order)), ld['jsr'].values,
+                         'o-', label=lang, alpha=0.7, markersize=3, lw=0.8)
+    axes[2].set_xticks(range(len(temp_order)))
+    axes[2].set_xticklabels(temp_order, rotation=30, fontsize=5)
+    axes[2].set_ylabel('JSR'); axes[2].set_title('JSR by Temperature')
+    axes[2].legend(fontsize=3.5, ncol=3)
+    _save(fig, os.path.join(RESULTS_DIR, "B6_temperature_decomposition.png"))
     decomp_df.to_csv(os.path.join(RESULTS_DIR, "B6_variance_decomposition.csv"), index=False)
     return decomp_df
 
@@ -803,7 +923,7 @@ def b7_tau_stability(df, anchor_ids):
         subset = subset.copy()
         if len(subset) < 100: continue
         print(f"\n  Group {group}: {len(subset):,} rows")
-        r = fit_irt(subset, anchor_ids, label=f"pass-{group}")
+        r = fit_irt(subset, anchor_ids, label=f"pass-{group}", cache_key=f"b7_pass_{group}")
         tau_by_pass[group] = {'tau_mean': r['tau_mean'], 'prompt_map': r['prompt_map'], 'lang_map': r['lang_map']}
         theta_by_pass[group] = {'theta_mean': r['theta_mean'], 'student_map': r['student_map']}
         beta_by_pass[group] = {'beta_mean': r['beta_mean'], 'prompt_map': r['prompt_map']}
@@ -883,59 +1003,107 @@ def b7_tau_stability(df, anchor_ids):
         lang_stability_df = pd.DataFrame(lstab)
 
     # Plotting
-    fig = plt.figure(figsize=(22, 16)); gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.35, wspace=0.3)
-    ax = fig.add_subplot(gs[0, 0]); dm = corr_mat.copy(); dm[np.isnan(dm)] = 0
-    sns.heatmap(dm, annot=True, fmt='.3f', cmap='RdYlGn', xticklabels=[str(p) for p in pass_keys], yticklabels=[str(p) for p in pass_keys], vmin=0, vmax=1, ax=ax)
-    ax.set_title('τ Correlation Across Passes', fontweight='bold')
+    _c1, _c2, _c3 = (C_BLUE, C_RED, C_PURPLE) if _HAS_FIG_STYLE else ('#2471a3', '#c0392b', '#7d3c98')
+    _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+    _L = LABELS if _HAS_FIG_STYLE else {'theta_short': 'θ', 'beta_short': 'β', 'tau_short': 'τ'}
 
-    ax = fig.add_subplot(gs[0, 1])
+    fig, all_axes = make_fig_grid(3, 3, height_override=1.8) if _HAS_FIG_STYLE \
+        else plt.subplots(3, 3, figsize=(5.5, 5.4))
+
+    # Row 0, col 0: correlation heatmap
+    ax = all_axes[0, 0]; dm = corr_mat.copy(); dm[np.isnan(dm)] = 0
+    sns.heatmap(dm, annot=True, fmt='.3f', cmap='RdYlGn',
+                xticklabels=[str(p) for p in pass_keys],
+                yticklabels=[str(p) for p in pass_keys],
+                vmin=0, vmax=1, ax=ax, annot_kws={'fontsize': 5},
+                cbar_kws={'shrink': 0.8})
+    ax.set_title(f'{_L["tau_short"]} Correlation Across Passes')
+    ax.tick_params(labelsize=5)
+
+    # Row 0, col 1: per-language stability bars
+    ax = all_axes[0, 1]
     if len(lang_stability_df) > 0:
         ls = lang_stability_df.sort_values('pearson_r', ascending=True)
-        cols = ['#2ecc71' if v > 0.8 else '#f1c40f' if v > 0.6 else '#e74c3c' for v in ls['pearson_r']]
-        bars = ax.barh(ls['language'], ls['pearson_r'], color=cols, edgecolor='black', linewidth=0.5)
-        for bar, val in zip(bars, ls['pearson_r']): ax.text(max(0, bar.get_width() + 0.01), bar.get_y() + bar.get_height()/2, f'{val:.3f}', va='center', fontsize=9)
-        ax.axvline(0.8, color='green', linestyle='--', alpha=0.5); ax.axvline(0.6, color='orange', linestyle='--', alpha=0.5)
-        ax.set_title(f'τ Stability by Language', fontweight='bold'); ax.set_xlim(0, 1.15)
+        cols = [_c1 if v > 0.8 else _c3 if v > 0.6 else _c2
+                for v in ls['pearson_r']]
+        bars = ax.barh(ls['language'], ls['pearson_r'], color=cols,
+                       edgecolor='black', linewidth=0.3)
+        for bar, val in zip(bars, ls['pearson_r']):
+            ax.text(max(0, bar.get_width() + 0.01),
+                    bar.get_y() + bar.get_height()/2,
+                    f'{val:.3f}', va='center', fontsize=4)
+        ax.axvline(0.8, color=_c1, ls='--', alpha=0.5, lw=0.5)
+        ax.axvline(0.6, color=_c3, ls='--', alpha=0.5, lw=0.5)
+        ax.set_title(f'{_L["tau_short"]} Stability by Language')
+        ax.set_xlim(0, 1.15)
 
-    ax = fig.add_subplot(gs[0, 2])
+    # Row 0, col 2: parameter stability summary
+    ax = all_axes[0, 2]
     pn, pm, pc = [], [], []
-    if len(theta_corr_df) > 0: pn.append('θ'); pm.append(theta_corr_df['pearson_r'].mean()); pc.append('#3498db')
-    if len(beta_corr_df) > 0: pn.append('β'); pm.append(beta_corr_df['pearson_r'].mean()); pc.append('#2ecc71')
-    if len(pairwise_df) > 0: pn.append('τ'); pm.append(pairwise_df['pearson_r'].mean()); pc.append('#e74c3c')
+    if len(theta_corr_df) > 0:
+        pn.append(_L['theta_short']); pm.append(theta_corr_df['pearson_r'].mean()); pc.append(_c1)
+    if len(beta_corr_df) > 0:
+        pn.append(_L['beta_short']); pm.append(beta_corr_df['pearson_r'].mean()); pc.append(_c3)
+    if len(pairwise_df) > 0:
+        pn.append(_L['tau_short']); pm.append(pairwise_df['pearson_r'].mean()); pc.append(_c2)
     if pn:
-        bars = ax.bar(pn, pm, color=pc, edgecolor='black', width=0.5)
-        for bar, val in zip(bars, pm): ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f'{val:.3f}', ha='center', fontweight='bold')
-        ax.set_ylim(0, 1.1); ax.axhline(0.8, color='gray', linestyle='--', alpha=0.5)
-        ax.set_title('Parameter Stability', fontweight='bold')
+        bars = ax.bar(pn, pm, color=pc, edgecolor='black', width=0.5, linewidth=0.3)
+        for bar, val in zip(bars, pm):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                    f'{val:.3f}', ha='center', fontsize=5)
+        ax.set_ylim(0, 1.1); ax.axhline(0.8, color='gray', ls='--', alpha=0.5, lw=0.5)
+        ax.set_title('Parameter Stability')
 
+    # Rows 1-2: per-language scatter (up to 6)
     if len(scatter_all_df) > 0:
-        langs_sorted = sorted(scatter_all_df['language'].unique()); pal = sns.color_palette("Set2", min(6, len(langs_sorted)))
+        langs_sorted = sorted(scatter_all_df['language'].unique())
+        pal = sns.color_palette("Set2", min(6, len(langs_sorted)))
         for idx in range(min(6, len(langs_sorted))):
-            ax = fig.add_subplot(gs[1 + idx//3, idx%3]); la = langs_sorted[idx]
+            ax = all_axes[1 + idx//3, idx%3]; la = langs_sorted[idx]
             ld = scatter_all_df[scatter_all_df['language'] == la]
-            xv, yv = ld['tau_pass1'].values.astype(np.float64), ld['tau_pass2'].values.astype(np.float64)
-            ax.scatter(xv, yv, alpha=0.4, s=20, color=pal[idx], edgecolors='none')
-            av = np.concatenate([xv, yv]); lo, hi = np.percentile(av, 1) - 0.2, np.percentile(av, 99) + 0.2
-            ax.plot([lo, hi], [lo, hi], 'r--', alpha=0.7, label='y=x')
+            xv = ld['tau_pass1'].values.astype(np.float64)
+            yv = ld['tau_pass2'].values.astype(np.float64)
+            ax.scatter(xv, yv, alpha=0.4, s=4, color=pal[idx], edgecolors='none')
+            av = np.concatenate([xv, yv])
+            lo, hi = np.percentile(av, 1) - 0.2, np.percentile(av, 99) + 0.2
+            ax.plot([lo, hi], [lo, hi], color=_c2, ls='--', alpha=0.7, lw=0.5)
             if len(xv) >= 10:
-                sl, ic, rv, _, _ = stats.linregress(xv, yv); ax.plot(np.linspace(lo, hi, 100), sl * np.linspace(lo, hi, 100) + ic, 'k-', alpha=0.6, label=f'r={rv:.3f}')
-            ax.set_title(f'{la.upper()} (n={len(ld)})', fontweight='bold'); ax.legend(fontsize=8); ax.grid(True, alpha=0.2); ax.set_aspect('equal', adjustable='datalim')
+                sl, ic, rv, _, _ = stats.linregress(xv, yv)
+                ax.plot(np.linspace(lo, hi, 100),
+                        sl * np.linspace(lo, hi, 100) + ic,
+                        'k-', alpha=0.6, lw=0.6, label=f'$r$={rv:.3f}')
+            ax.set_title(f'{la.upper()} (n={len(ld)})')
+            ax.legend(fontsize=4)
         for idx in range(min(6, len(langs_sorted)), 6):
-            fig.add_subplot(gs[1 + idx//3, idx%3]).set_visible(False)
+            all_axes[1 + idx//3, idx%3].set_visible(False)
+    else:
+        for r in range(1, 3):
+            for c in range(3):
+                all_axes[r, c].set_visible(False)
 
-    fig.suptitle('B7: τ Stability Across Passes', fontsize=16, fontweight='bold', y=1.01)
-    plt.savefig(os.path.join(RESULTS_DIR, "B7_tau_stability.png"), dpi=300, bbox_inches='tight'); plt.close()
+    _save(fig, os.path.join(RESULTS_DIR, "B7_tau_stability.png"))
 
+    # Tau diff distribution (separate figure)
     if len(scatter_all_df) > 0:
-        scatter_all_df['abs_diff'] = np.abs(scatter_all_df['tau_pass1'].values - scatter_all_df['tau_pass2'].values)
-        fig2, ax2 = plt.subplots(1, 2, figsize=(14, 5))
-        ax2[0].hist(scatter_all_df['abs_diff'], bins=60, edgecolor='black', alpha=0.7, color='steelblue')
-        ax2[0].axvline(scatter_all_df['abs_diff'].mean(), color='red', linestyle='--', label=f'Mean={scatter_all_df["abs_diff"].mean():.3f}')
-        ax2[0].set_title('|Δτ| Distribution', fontweight='bold'); ax2[0].legend()
-        ld2 = scatter_all_df.groupby('language')['abs_diff'].agg(['mean', 'std']).sort_values('mean', ascending=True)
-        ax2[1].barh(ld2.index, ld2['mean'], xerr=ld2['std'], color=sns.color_palette("viridis", len(ld2)), edgecolor='black', capsize=3)
-        ax2[1].set_title('|Δτ| by Language', fontweight='bold')
-        plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "B7_tau_diff_distribution.png"), dpi=300, bbox_inches='tight'); plt.close()
+        scatter_all_df['abs_diff'] = np.abs(
+            scatter_all_df['tau_pass1'].values - scatter_all_df['tau_pass2'].values)
+        fig2, ax2 = make_fig(n_panels=2, height_override=2.2) if _HAS_FIG_STYLE \
+            else plt.subplots(1, 2, figsize=(5.5, 2.2))
+        if not isinstance(ax2, np.ndarray): ax2 = np.array([ax2])
+        ax2[0].hist(scatter_all_df['abs_diff'], bins=60, edgecolor='black',
+                    linewidth=0.2, alpha=0.7, color=_c1)
+        ax2[0].axvline(scatter_all_df['abs_diff'].mean(), color=_c2, ls='--',
+                       lw=0.6, label=f'Mean={scatter_all_df["abs_diff"].mean():.3f}')
+        ax2[0].set_title(r'$|\Delta\tau|$ Distribution')
+        ax2[0].set_xlabel(r'$|\Delta\tau|$'); ax2[0].legend(fontsize=5)
+        ld2 = scatter_all_df.groupby('language')['abs_diff'].agg(
+            ['mean', 'std']).sort_values('mean', ascending=True)
+        ax2[1].barh(ld2.index, ld2['mean'], xerr=ld2['std'],
+                    color=sns.color_palette("viridis", len(ld2)),
+                    edgecolor='black', linewidth=0.3, capsize=2)
+        ax2[1].set_title(r'$|\Delta\tau|$ by Language')
+        ax2[1].set_xlabel(r'$|\Delta\tau|$')
+        _save(fig2, os.path.join(RESULTS_DIR, "B7_tau_diff_distribution.png"))
 
     pairwise_df.to_csv(os.path.join(RESULTS_DIR, "B7_tau_pairwise_correlations.csv"), index=False)
     if len(lang_stability_df) > 0: lang_stability_df.to_csv(os.path.join(RESULTS_DIR, "B7_tau_stability_by_language.csv"), index=False)
@@ -987,4 +1155,5 @@ def run_all_experiments():
 
 
 if __name__ == "__main__":
+    if _HAS_FIG_STYLE: apply_style()
     run_all_experiments()

@@ -18,6 +18,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import seaborn as sns
+# ── fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
+
 from scipy.stats import spearmanr
 import os
 import re
@@ -39,14 +53,10 @@ LANG_ORDER = ['en', 'zh', 'it', 'vi', 'ar', 'ko', 'th', 'bn', 'sw', 'jv']
 
 IRT_MODEL = '2PL'
 
-FAM_COLORS = {
-    'GPT':      '#3498db',
-    'Claude':   '#9b59b6',
-    'Gemini':   '#2ecc71',
-    'Grok':     '#e74c3c',
-    'DeepSeek': '#f39c12',
-    'Other':    '#95a5a6',
-}
+# ── Color Palette Configuration ──
+_c1 = C_BLUE if _HAS_FIG_STYLE else '#2471a3'   # Main / Safe
+_c2 = C_RED if _HAS_FIG_STYLE else '#c0392b'    # Highlight / Unsafe
+_c3 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98' # Divergence / Alt
 
 
 def get_model_family(name):
@@ -136,63 +146,52 @@ def build_pivots(overall, lang_df):
 
 def plot_dual_heatmap(jsr_pivot, ability_pivot, families, present_langs):
     """
-    Side-by-side: JSR (higher = less safe) vs θ+δ (higher = safer).
-    JSR uses a red colormap (red = dangerous).
-    θ+δ uses a green colormap (green = safe).
+    Horizontal layout: languages on y-axis, models on x-axis.
+    Colorblind friendly: Reds (JSR) and RdBu (Ability).
     """
     n_models = len(jsr_pivot)
     n_langs = len(present_langs)
 
-    fig_height = max(10, n_models * 0.22)
-    fig, axes = plt.subplots(1, 2, figsize=(n_langs * 1.3 + 4, fig_height),
-                             gridspec_kw={'wspace': 0.3})
+    jsr_t = jsr_pivot.T
+    ability_t = ability_pivot.T
 
-    short_labels = [shorten_name(n) for n in jsr_pivot.index]
+    fig_width = max(18, n_models * 0.35 + 2)
+    fig_height = n_langs * 1.5 + 3
+    
+    # FIX: Initialize tight layout here
+    fig, axes = plt.subplots(2, 1, figsize=(fig_width, fig_height), layout='tight')
 
-    # Left: JSR (red = high JSR = unsafe)
+    short_labels = [shorten_name(n) for n in jsr_t.columns]
+
+    # Top: JSR (Reds -> Dark Red = High JSR = Unsafe)
     ax = axes[0]
-    sns.heatmap(jsr_pivot, ax=ax, cmap='YlOrRd', vmin=0, vmax=1,
+    sns.heatmap(jsr_t, ax=ax, cmap='Reds', vmin=0, vmax=1,
                 annot=True, fmt='.2f', linewidths=0.3, linecolor='white',
-                cbar_kws={'label': 'JSR (1=all unsafe)', 'shrink': 0.5},
-                annot_kws={'fontsize': 6})
-    ax.set_yticklabels(short_labels, fontsize=6.5, rotation=0)
-    ax.set_xticklabels(present_langs, fontsize=9, rotation=0)
-    ax.set_title('Jailbreak Success Rate\n(higher = less safe)',
+                cbar_kws={'label': 'JSR (1=all unsafe)', 'orientation': 'horizontal', 
+                          'shrink': 0.5, 'pad': 0.15},
+                annot_kws={'fontsize': 5.5})
+    ax.set_xticklabels(short_labels, fontsize=6, rotation=90, color='black')
+    ax.set_yticklabels(present_langs, fontsize=9, rotation=0)
+    ax.set_title('Jailbreak Success Rate (higher = less safe)',
                  fontsize=12, fontweight='bold')
-    ax.set_ylabel('')
+    ax.set_ylabel('Language')
 
-    # Color y-tick labels by family
-    for i, (model, fam) in enumerate(families.items()):
-        color = FAM_COLORS.get(fam, '#333')
-        ax.get_yticklabels()[i].set_color(color)
-
-    # Right: θ+δ (green = high ability = safe)
+    # Bottom: θ+δ (RdBu -> Red = Unsafe, Blue = Safe)
     ax = axes[1]
-    sns.heatmap(ability_pivot, ax=ax, cmap='RdYlGn', center=0,
+    vmax_ab = max(abs(ability_t.values.min()), abs(ability_t.values.max()), 2)
+    sns.heatmap(ability_t, ax=ax, cmap='RdBu', center=0, vmin=-vmax_ab, vmax=vmax_ab,
                 annot=True, fmt='.2f', linewidths=0.3, linecolor='white',
-                cbar_kws={'label': 'θ+δ (higher = safer)', 'shrink': 0.5},
-                annot_kws={'fontsize': 6})
-    ax.set_yticklabels(short_labels, fontsize=6.5, rotation=0)
-    ax.set_xticklabels(present_langs, fontsize=9, rotation=0)
-    ax.set_title('IRT Ability (θ + δ)\n(higher = safer)',
+                cbar_kws={'label': 'θ+δ (higher = safer)', 'orientation': 'horizontal', 
+                          'shrink': 0.5, 'pad': 0.15},
+                annot_kws={'fontsize': 5.5})
+    ax.set_xticklabels(short_labels, fontsize=6, rotation=90, color='black')
+    ax.set_yticklabels(present_langs, fontsize=9, rotation=0)
+    ax.set_title('IRT Ability (θ + δ) (higher = safer)',
                  fontsize=12, fontweight='bold')
-    ax.set_ylabel('')
-
-    for i, (model, fam) in enumerate(families.items()):
-        color = FAM_COLORS.get(fam, '#333')
-        ax.get_yticklabels()[i].set_color(color)
-
-    # Family legend
-    import matplotlib.patches as mpatches
-    handles = [mpatches.Patch(color=c, label=f)
-               for f, c in FAM_COLORS.items()]
-    fig.legend(handles=handles, loc='lower center',
-               ncol=len(FAM_COLORS), fontsize=9,
-               bbox_to_anchor=(0.5, -0.02))
+    ax.set_ylabel('Language')
 
     fig.suptitle(f'Model Safety: JSR vs IRT Ability by Language ({IRT_MODEL})',
-                 fontsize=14, fontweight='bold', y=1.01)
-    plt.tight_layout()
+                 fontsize=14, fontweight='bold', y=1.02)
 
     path = os.path.join(RESULTS_DIR, f"dual_heatmap_{IRT_MODEL}.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
@@ -206,9 +205,7 @@ def plot_dual_heatmap(jsr_pivot, ability_pivot, families, present_langs):
 
 def plot_english_focus(jsr_pivot, ability_pivot, families, overall):
     """
-    Since δ_en = 0 by constraint, θ+δ in English = θ.
-    Show JSR_en and θ side by side for each model, sorted by θ.
-    Highlights Grok cluster at the unsafe end.
+    Shows JSR_en and θ side by side. Uses 3-color scheme (Red for Grok, Blue for rest).
     """
     if 'en' not in jsr_pivot.columns:
         print("  English not in data, skipping English focus plot.")
@@ -222,71 +219,52 @@ def plot_english_focus(jsr_pivot, ability_pivot, families, overall):
         'family': families.values,
     }).dropna()
 
-    # Sort by theta (safest at top)
     en_df = en_df.sort_values('theta', ascending=True)
-
     n = len(en_df)
+    
+    # FIX: Initialize tight layout here
     fig, axes = plt.subplots(1, 2, figsize=(14, max(7, n * 0.2)),
-                             sharey=True, gridspec_kw={'wspace': 0.05})
+                             sharey=True, gridspec_kw={'wspace': 0.05}, layout='tight')
 
     labels = [shorten_name(m) for m in en_df['model']]
-    colors = [FAM_COLORS.get(f, '#888') for f in en_df['family']]
-    y = np.arange(n)
+    colors = [_c2 if f == 'Grok' else _c1 for f in en_df['family']]
 
-    # Build styled labels: bold + red for Grok
-    label_colors = []
-    label_weights = []
-    for fam in en_df['family']:
-        if fam == 'Grok':
-            label_colors.append('#e74c3c')
-            label_weights.append('bold')
-        else:
-            label_colors.append('#333333')
-            label_weights.append('normal')
+    label_colors = ['#e74c3c' if f == 'Grok' else '#333333' for f in en_df['family']]
+    label_weights = ['bold' if f == 'Grok' else 'normal' for f in en_df['family']]
 
-    # Left panel: JSR_en (bars going right = less safe)
+    # Left panel: JSR_en
     ax = axes[0]
-    ax.barh(y, en_df['JSR_en'].values, color=colors,
+    ax.barh(np.arange(n), en_df['JSR_en'].values, color=colors,
             edgecolor='black', linewidth=0.3, alpha=0.85)
-    ax.set_xlim(1, 0)  # Invert: high JSR (unsafe) on left
+    ax.set_xlim(1, 0)
     ax.set_xlabel('JSR_en (← less safe  |  safer →)', fontsize=10)
     ax.set_title('JSR in English', fontweight='bold', fontsize=12)
-    ax.set_yticks(y)
+    ax.set_yticks(np.arange(n))
     ax.set_yticklabels(labels, fontsize=7)
     ax.grid(axis='x', alpha=0.2)
 
-    # Apply label styling after setting labels
     fig.canvas.draw()
     for i, (col, wt) in enumerate(zip(label_colors, label_weights)):
         ax.get_yticklabels()[i].set_color(col)
         ax.get_yticklabels()[i].set_fontweight(wt)
 
-    # Right panel: θ (bars going right = safer)
+    # Right panel: θ
     ax = axes[1]
-    ax.barh(y, en_df['theta'].values, color=colors,
+    ax.barh(np.arange(n), en_df['theta'].values, color=colors,
             edgecolor='black', linewidth=0.3, alpha=0.85)
     ax.set_xlabel('θ (← less safe  |  safer →)', fontsize=10)
     ax.set_title('IRT Ability (θ)', fontweight='bold', fontsize=12)
     ax.grid(axis='x', alpha=0.2)
 
-    # Add Spearman annotation
     rho, p = spearmanr(en_df['JSR_en'], en_df['theta'])
     fig.text(0.5, -0.02,
              f'Spearman ρ(JSR_en, θ) = {rho:.3f}  (p = {p:.2e})  |  '
              f'Note: δ_en = 0 by constraint, so θ+δ = θ for English',
              ha='center', fontsize=9, style='italic')
 
-    # Family legend
-    import matplotlib.patches as mpatches
-    handles = [mpatches.Patch(color=c, label=f)
-               for f, c in FAM_COLORS.items()]
-    fig.legend(handles=handles, loc='upper center',
-               ncol=len(FAM_COLORS), fontsize=9,
-               bbox_to_anchor=(0.5, 1.03))
-
     fig.suptitle(f'English Safety: JSR vs IRT Ability ({IRT_MODEL})\n'
                  f'(sorted by θ, least safe at bottom)',
-                 fontsize=13, fontweight='bold', y=1.06)
+                 fontsize=13, fontweight='bold', y=1.04)
 
     path = os.path.join(RESULTS_DIR, f"english_focus_{IRT_MODEL}.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
@@ -301,75 +279,57 @@ def plot_english_focus(jsr_pivot, ability_pivot, families, overall):
 def plot_rank_discrepancy(jsr_pivot, ability_pivot, families, present_langs):
     """
     Per-language rank discrepancy: JSR_rank − (θ+δ)_rank.
-    Red = JSR overestimates risk (penalised).
-    Blue = JSR underestimates risk (flattered).
+    Colorblind friendly: RdBu_r. Horizontal layout.
     """
     n_models = len(jsr_pivot)
 
-    # Compute ranks within each language
-    jsr_ranks = jsr_pivot.rank(ascending=False, method='min')       # high JSR = rank 1 (worst)
-    ability_ranks = ability_pivot.rank(ascending=True, method='min') # low θ+δ = rank 1 (worst)
+    jsr_ranks = jsr_pivot.rank(ascending=False, method='min')      
+    ability_ranks = ability_pivot.rank(ascending=True, method='min') 
     delta_ranks = jsr_ranks - ability_ranks
 
-    fig_height = max(8, n_models * 0.22)
-    fig, ax = plt.subplots(figsize=(len(present_langs) * 1.1 + 3, fig_height))
-
-    short_labels = [shorten_name(n) for n in delta_ranks.index]
-
-    # Sort by mean absolute rank shift (most divergent at top)
     delta_ranks['_sort'] = delta_ranks.abs().mean(axis=1)
     delta_ranks = delta_ranks.sort_values('_sort', ascending=False)
-    families_sorted = families.reindex(delta_ranks.index)
     delta_ranks = delta_ranks.drop(columns='_sort')
     short_labels = [shorten_name(n) for n in delta_ranks.index]
 
-    vmax = max(abs(delta_ranks.values.min()),
-               abs(delta_ranks.values.max()), 5)
+    delta_ranks_t = delta_ranks.T
 
-    sns.heatmap(delta_ranks, ax=ax, cmap='RdBu_r', center=0,
+    fig_width = max(18, n_models * 0.35 + 2)
+    fig_height = len(present_langs) * 0.5 + 2
+    
+    # FIX: Initialize tight layout here
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), layout='tight')
+
+    vmax = max(abs(delta_ranks_t.values.min()), abs(delta_ranks_t.values.max()), 5)
+
+    sns.heatmap(delta_ranks_t, ax=ax, cmap='RdBu_r', center=0,
                 vmin=-vmax, vmax=vmax,
                 annot=True, fmt='.0f', linewidths=0.3, linecolor='white',
                 cbar_kws={'label': 'Rank Δ (JSR rank − IRT rank)',
-                          'shrink': 0.5},
-                annot_kws={'fontsize': 6})
+                          'orientation': 'horizontal', 'shrink': 0.4, 'pad': 0.25},
+                annot_kws={'fontsize': 5.5})
 
-    ax.set_yticklabels(short_labels, fontsize=6.5, rotation=0)
-    ax.set_xticklabels(present_langs, fontsize=9, rotation=0)
-
-    # Color y-tick labels by family
-    for i, (model, fam) in enumerate(families_sorted.items()):
-        color = FAM_COLORS.get(fam, '#333')
-        ax.get_yticklabels()[i].set_color(color)
+    ax.set_xticklabels(short_labels, fontsize=6, rotation=90, color='black')
+    ax.set_yticklabels(present_langs, fontsize=9, rotation=0)
 
     ax.set_title(
         f'Per-Language Rank Discrepancy: JSR vs θ+δ ({IRT_MODEL})\n'
-        f'Red = JSR overestimates risk (penalised)  |  '
-        f'Blue = JSR underestimates risk (flattered)\n'
-        f'Sorted by mean |Δ| (most divergent at top)',
+        f'Red = JSR overestimates risk  |  Blue = JSR underestimates risk',
         fontsize=11, fontweight='bold')
-    ax.set_ylabel('')
-    ax.set_xlabel('Language', fontsize=11)
+    ax.set_ylabel('Language', fontsize=11)
+    ax.set_xlabel('')
 
-    import matplotlib.patches as mpatches
-    handles = [mpatches.Patch(color=c, label=f)
-               for f, c in FAM_COLORS.items()]
-    ax.legend(handles=handles, loc='lower center',
-              bbox_to_anchor=(0.5, -0.08), ncol=len(FAM_COLORS),
-              fontsize=8)
-
-    plt.tight_layout()
-    path = os.path.join(RESULTS_DIR,
-                        f"rank_discrepancy_heatmap_{IRT_MODEL}.png")
+    path = os.path.join(RESULTS_DIR, f"rank_discrepancy_heatmap_{IRT_MODEL}.png")
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved: {os.path.basename(path)}")
-
 
 # ══════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    if _HAS_FIG_STYLE: apply_style()
     print("=" * 60)
     print("JSR vs IRT ABILITY HEATMAPS")
     print("=" * 60)

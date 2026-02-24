@@ -16,6 +16,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import seaborn as sns
+# ── fig_style integration ──
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, COLORS_3, CMAP_DIV, CMAP_SEQ,
+                           FAM_COLORS as FS_FAM_COLORS, FAM_ORDER as FS_FAM_ORDER,
+                           LABELS, LANG_ORDER, FULL_WIDTH, DPI, ASPECT,
+                           get_family, get_family_color, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+    print("[WARN] fig_style.py not found - using defaults")
+
 from tqdm import tqdm
 from scipy import stats
 from scipy.stats import pearsonr, spearmanr
@@ -23,6 +37,7 @@ from scipy.special import expit
 import os
 import warnings
 import re
+import pickle
 
 warnings.filterwarnings('ignore')
 
@@ -58,6 +73,16 @@ def clean_id(x):
         return str(int(float(x)))
     except Exception:
         return str(x).strip()
+
+def _cpu_results(results):
+    """Move all torch tensors to CPU for pickle compatibility."""
+    out = {}
+    for k, v in results.items():
+        if isinstance(v, torch.Tensor):
+            out[k] = v.detach().cpu()
+        else:
+            out[k] = v
+    return out
 
 
 def _to_scalar(val):
@@ -551,6 +576,12 @@ def a1_compare_1pl_2pl(df, anchor_ids):
           f"window={CONVERGENCE_WINDOW}, threshold={CONVERGENCE_THRESHOLD}")
     print("=" * 70)
 
+    cache_path = os.path.join(RESULTS_DIR, "_cache_a1_results.pkl")
+    if os.path.exists(cache_path):
+        print(f"  ★ Loading cached A1 results from {cache_path}")
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
+
     print("\n  Fitting 1PL...")
     r1 = fit_model(model_1pl, df, anchor_ids, label="1PL")
 
@@ -597,6 +628,9 @@ def a1_compare_1pl_2pl(df, anchor_ids):
         'r_theta': r_theta, 'r_beta': r_beta,
         'converged_1pl': r1['converged_at'], 'converged_2pl': r2['converged_at'],
     }
+    with open(cache_path, 'wb') as f:
+        pickle.dump((_cpu_results(r1), _cpu_results(r2), comparison), f)
+    print(f"  ★ Cached A1 results to {cache_path}")
     return r1, r2, comparison
 
 
@@ -608,6 +642,12 @@ def a2_graded_response(df, anchor_ids):
     print("\n" + "=" * 70)
     print("A2: GRADED RESPONSE MODEL (LIKERT 1-5)")
     print("=" * 70)
+
+    cache_path = os.path.join(RESULTS_DIR, "_cache_a2_results.pkl")
+    if os.path.exists(cache_path):
+        print(f"  ★ Loading cached A2 results from {cache_path}")
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
 
     print("\n  Fitting GRM...")
     r_grm = fit_model(model_grm, df, anchor_ids, label="GRM",
@@ -623,6 +663,10 @@ def a2_graded_response(df, anchor_ids):
         for k in range(thresh.shape[1]):
             print(f"    Threshold {k+1}: mean={np.mean(thresh[:, k]):.3f}, "
                   f"range=[{np.min(thresh[:, k]):.3f}, {np.max(thresh[:, k]):.3f}]")
+
+    with open(cache_path, 'wb') as f:
+        pickle.dump(_cpu_results(r_grm), f)
+    print(f"  ★ Cached A2 results to {cache_path}")
     return r_grm
 
 
@@ -635,6 +679,22 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
     print("A3-A7: FIT DIAGNOSTICS AND PLOTS")
     print("=" * 70)
 
+    # ── Resolve style constants (fig_style if available, else fallback) ──
+    _W  = FULL_WIDTH if _HAS_FIG_STYLE else 5.5
+    _c1 = C_BLUE   if _HAS_FIG_STYLE else '#2471a3'   # 1PL  = blue
+    _c2 = C_RED    if _HAS_FIG_STYLE else '#c0392b'    # 2PL  = red
+    _c3 = C_PURPLE if _HAS_FIG_STYLE else '#7d3c98'    # GRM  = purple
+    _fc = FS_FAM_COLORS if _HAS_FIG_STYLE else {
+        'Claude': '#7d3c98', 'GPT': '#2471a3', 'Gemini': '#c0392b',
+        'Grok': '#e67e22', 'DeepSeek': '#27ae60', 'Other': '#7f8c8d'}
+    _save = fs_savefig if _HAS_FIG_STYLE else (
+        lambda fig, p, **kw: (fig.savefig(p, dpi=300, bbox_inches='tight'),
+                              plt.close(fig)))
+    # Greek-letter labels (fall back to plain text)
+    _L = LABELS if _HAS_FIG_STYLE else {
+        'theta': 'θ', 'theta_short': 'θ', 'beta': 'β', 'beta_short': 'β',
+        'alpha': 'α', 'alpha_short': 'α'}
+
     # Item and person fit
     item_fit_1pl = compute_item_fit(r1, '1pl')
     item_fit_2pl = compute_item_fit(r2, '2pl')
@@ -646,177 +706,251 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
     person_fit_1pl.to_csv(os.path.join(RESULTS_DIR, "A4_person_fit_1pl.csv"), index=False)
     person_fit_2pl.to_csv(os.path.join(RESULTS_DIR, "A4_person_fit_2pl.csv"), index=False)
 
-    print(f"  1PL: infit mean={item_fit_1pl['infit'].mean():.3f}, misfit={((item_fit_1pl['infit'] > 1.3) | (item_fit_1pl['outfit'] > 1.3)).sum()}")
-    print(f"  2PL: infit mean={item_fit_2pl['infit'].mean():.3f}, misfit={((item_fit_2pl['infit'] > 1.3) | (item_fit_2pl['outfit'] > 1.3)).sum()}")
+    print(f"  1PL: infit mean={item_fit_1pl['infit'].mean():.3f}, "
+          f"misfit={((item_fit_1pl['infit'] > 1.3) | (item_fit_1pl['outfit'] > 1.3)).sum()}")
+    print(f"  2PL: infit mean={item_fit_2pl['infit'].mean():.3f}, "
+          f"misfit={((item_fit_2pl['infit'] > 1.3) | (item_fit_2pl['outfit'] > 1.3)).sum()}")
 
-    # ── Figure A.1: Model Comparison (4 panels) ──
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    # ════════════════════════════════════════════════════════════════
+    # A1: Model Comparison (1×4 Row)
+    # ════════════════════════════════════════════════════════════════
+    # Changed from (2, 2) to (1, 4) and adjusted height for a single row
+    fig, axes = make_fig_grid(1, 4, height_override=2.5) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 4, figsize=(_W * 2, 2.5))
+    
+    # If not using fig_style, axes is a 1D array; if using it, 
+    # make_fig_grid might return a 2D array, so we flatten to be safe.
+    axes_flat = axes.flatten()
 
-    # Convergence (with convergence markers)
-    ax = axes[0, 0]
+    # (a) Convergence
+    ax = axes_flat[0]
     w = 50
-    for res, lbl, col in [(r1, '1PL', '#3498db'), (r2, '2PL', '#e74c3c')]:
+    for res, lbl, col in [(r1, '1PL', _c1), (r2, '2PL', _c2)]:
         losses = res['losses']
         if len(losses) > w:
             sm = np.convolve(losses, np.ones(w)/w, mode='valid')
-            ax.plot(range(w-1, len(losses)), sm, color=col, label=lbl, linewidth=2)
-        ax.axvline(res['converged_at'], color=col, linestyle=':', alpha=0.7,
-                   label=f'{lbl} converged ({res["converged_at"]})')
+            ax.plot(range(w-1, len(losses)), sm, color=col, label=lbl)
+        ax.axvline(res['converged_at'], color=col, ls=':', alpha=0.6,
+                   label=f'{lbl} conv. ({res["converged_at"]})')
     if r_grm is not None:
         losses_g = r_grm['losses']
         if len(losses_g) > w:
             sm_g = np.convolve(losses_g, np.ones(w)/w, mode='valid')
-            ax.plot(range(w-1, len(losses_g)), sm_g, color='#2ecc71', label='GRM', linewidth=2)
-        ax.axvline(r_grm['converged_at'], color='#2ecc71', linestyle=':', alpha=0.7,
-                   label=f'GRM converged ({r_grm["converged_at"]})')
+            ax.plot(range(w-1, len(losses_g)), sm_g, color=_c3, label='GRM')
+        ax.axvline(r_grm['converged_at'], color=_c3, ls=':', alpha=0.6,
+                   label=f'GRM conv. ({r_grm["converged_at"]})')
     ax.set_xlabel('Step'); ax.set_ylabel('ELBO Loss')
-    ax.set_title('Training Convergence\n(dotted = convergence point)', fontweight='bold')
-    ax.legend(fontsize=9); ax.grid(True, alpha=0.3)
+    ax.set_title('Training Convergence')
+    ax.legend(fontsize=5, ncol=1) # Reduced ncol for narrow subplot
 
-    # AIC/BIC
-    ax = axes[0, 1]
-    x = np.arange(2); w_bar = 0.3
-    ax.bar(x - w_bar/2, [comparison['aic_1pl'], comparison['bic_1pl']], w_bar, label='1PL', color='#3498db', edgecolor='black')
-    ax.bar(x + w_bar/2, [comparison['aic_2pl'], comparison['bic_2pl']], w_bar, label='2PL', color='#e74c3c', edgecolor='black')
+    # (b) AIC/BIC
+    ax = axes_flat[1]
+    x = np.arange(2); wb = 0.3
+    ax.bar(x - wb/2, [comparison['aic_1pl'], comparison['bic_1pl']],
+           wb, label='1PL', color=_c1, edgecolor='black', linewidth=0.4)
+    ax.bar(x + wb/2, [comparison['aic_2pl'], comparison['bic_2pl']],
+           wb, label='2PL', color=_c2, edgecolor='black', linewidth=0.4)
     ax.set_xticks(x); ax.set_xticklabels(['AIC', 'BIC'])
-    ax.set_title('Model Selection (lower = better)', fontweight='bold')
-    ax.legend(); ax.grid(axis='y', alpha=0.3)
+    ax.set_title('Model Selection')
+    ax.legend(fontsize=5)
 
-    # α distribution
-    ax = axes[1, 0]
-    ax.hist(r2['alpha_mean'], bins=40, edgecolor='black', alpha=0.7, color='#e74c3c')
-    ax.axvline(1.0, color='blue', linestyle='--', linewidth=2, label='α=1 (1PL)')
-    ax.axvline(np.mean(r2['alpha_mean']), color='black', linestyle='-', linewidth=2, label=f'Mean={np.mean(r2["alpha_mean"]):.2f}')
-    ax.set_xlabel('Discrimination (α)'); ax.set_ylabel('Count')
-    ax.set_title('2PL Discrimination', fontweight='bold'); ax.legend()
+    # (c) α distribution
+    ax = axes_flat[2]
+    ax.hist(r2['alpha_mean'], bins=40, edgecolor='black', linewidth=0.3,
+            alpha=0.7, color=_c2)
+    ax.axvline(1.0, color=_c1, ls='--', label=r'$\alpha$=1 (1PL)')
+    ax.axvline(np.mean(r2['alpha_mean']), color='black', ls='-',
+               label=f'Mean={np.mean(r2["alpha_mean"]):.2f}')
+    ax.set_xlabel(_L.get('alpha_short', r'$\alpha$'))
+    ax.set_ylabel('Count')
+    ax.set_title('2PL Discrimination')
+    ax.legend(fontsize=5)
 
-    # θ agreement
-    ax = axes[1, 1]
+    # (d) θ agreement
+    ax = axes_flat[3]
     common = set(r1['student_map']) & set(r2['student_map'])
     th1 = [_to_scalar(r1['theta_mean'][r1['student_map'][s]]) for s in common]
     th2 = [_to_scalar(r2['theta_mean'][r2['student_map'][s]]) for s in common]
-    ax.scatter(th1, th2, s=50, alpha=0.7, edgecolors='black', linewidth=0.5, c='steelblue')
+    ax.scatter(th1, th2, s=12, alpha=0.7, edgecolors='black',
+               linewidth=0.3, c=_c1)
     lims = [min(min(th1), min(th2)) - 0.3, max(max(th1), max(th2)) + 0.3]
-    ax.plot(lims, lims, 'r--', label=f'r={comparison["r_theta"]:.3f}')
-    ax.set_xlabel('θ (1PL)'); ax.set_ylabel('θ (2PL)')
-    ax.set_title('Ability Agreement', fontweight='bold')
-    ax.legend(); ax.set_aspect('equal'); ax.grid(True, alpha=0.3)
+    ax.plot(lims, lims, color=_c2, ls='--',
+            label=f'$r$={comparison["r_theta"]:.3f}')
+    ax.set_xlabel(f'{_L.get("theta_short", "θ")} (1PL)')
+    ax.set_ylabel(f'{_L.get("theta_short", "θ")} (2PL)')
+    ax.set_title('Ability Agreement')
+    ax.legend(fontsize=5); ax.set_aspect('equal')
 
-    plt.suptitle('A1: Model Comparison', fontsize=15, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig(os.path.join(RESULTS_DIR, "A1_model_comparison.png"), dpi=300, bbox_inches='tight')
-    plt.close(); print(f"  Saved: A1_model_comparison.png")
+    fig.suptitle('A1: Model Comparison', y=1.05)
+    _save(fig, os.path.join(RESULTS_DIR, "A1_model_comparison.png"))
 
-    # ── Figure A.2: Item Fit ──
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    for ax, fdf, lbl in [(axes[0], item_fit_1pl, '1PL'), (axes[1], item_fit_2pl, '2PL')]:
-        ax.scatter(fdf['infit'], fdf['outfit'], alpha=0.5, s=30, c=fdf['p_value'], cmap='RdYlGn', edgecolors='black', linewidth=0.3)
-        ax.axvline(1.3, color='red', linestyle='--', alpha=0.5); ax.axhline(1.3, color='red', linestyle='--', alpha=0.5)
-        ax.axvline(0.7, color='orange', linestyle='--', alpha=0.5); ax.axhline(0.7, color='orange', linestyle='--', alpha=0.5)
-        ax.axvline(1.0, color='gray', linestyle='-', alpha=0.3); ax.axhline(1.0, color='gray', linestyle='-', alpha=0.3)
-        n_mis = ((fdf['infit'] > 1.3) | (fdf['outfit'] > 1.3)).sum()
-        ax.set_xlabel('Infit MNSQ'); ax.set_ylabel('Outfit MNSQ')
-        ax.set_title(f'{lbl}: Item Fit ({n_mis} misfitting)', fontweight='bold'); ax.grid(True, alpha=0.3)
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "A2_item_fit.png"), dpi=300, bbox_inches='tight'); plt.close()
-    print(f"  Saved: A2_item_fit.png")
+    # ════════════════════════════════════════════════════════════════
+    # A3: Person Fit (1×2) — family-colored
+    # ════════════════════════════════════════════════════════════════
+    fig, axes = make_fig(n_panels=2, height_override=2.5) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 2, figsize=(_W, 2.5))
+    for ax, pf, lbl in [(axes[0], person_fit_1pl, '1PL'),
+                          (axes[1], person_fit_2pl, '2PL')]:
+        c = [_fc.get(get_model_family(s), '#888') for s in pf['student']]
+        ax.scatter(pf['theta'], pf['infit'], alpha=0.7, s=15, c=c,
+                   edgecolors='black', linewidth=0.3)
+        ax.axhline(1.3, color=_c2, ls='--', alpha=0.5, lw=0.6)
+        ax.axhline(0.7, color='orange', ls='--', alpha=0.5, lw=0.6)
+        ax.set_xlabel(_L.get('theta_short', 'θ'))
+        ax.set_ylabel('Infit MNSQ')
+        ax.set_title(f'{lbl}: Person Fit')
+        # family legend
+        for fam in ['Claude', 'GPT', 'Gemini', 'Grok', 'DeepSeek']:
+            if any(get_model_family(s) == fam for s in pf['student']):
+                ax.scatter([], [], c=_fc.get(fam, '#888'), s=15, label=fam)
+        ax.legend(fontsize=5, ncol=3, loc='upper right')
+    _save(fig, os.path.join(RESULTS_DIR, "A3_person_fit.png"))
+    print(f"  Saved: A3_person_fit")
 
-    # ── Figure A.3: Person Fit ──
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fam_colors = {'GPT': '#3498db', 'Claude': '#9b59b6', 'Gemini': '#2ecc71', 'Grok': '#e74c3c', 'DeepSeek': '#f39c12', 'Other': '#95a5a6'}
-    for ax, pf, lbl in [(axes[0], person_fit_1pl, '1PL'), (axes[1], person_fit_2pl, '2PL')]:
-        c = [fam_colors.get(get_model_family(s), '#666') for s in pf['student']]
-        ax.scatter(pf['theta'], pf['infit'], alpha=0.7, s=60, c=c, edgecolors='black', linewidth=0.5)
-        ax.axhline(1.3, color='red', linestyle='--', alpha=0.5); ax.axhline(0.7, color='orange', linestyle='--', alpha=0.5)
-        ax.set_xlabel('θ'); ax.set_ylabel('Infit MNSQ'); ax.set_title(f'{lbl}: Person Fit', fontweight='bold')
-        for fam, col in fam_colors.items():
-            if any(get_model_family(s) == fam for s in pf['student']): ax.scatter([], [], c=col, s=60, label=fam)
-        ax.legend(fontsize=8, ncol=2); ax.grid(True, alpha=0.3)
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "A3_person_fit.png"), dpi=300, bbox_inches='tight'); plt.close()
-    print(f"  Saved: A3_person_fit.png")
-
-    # ── Figure A.4: Information Functions ──
+    # ════════════════════════════════════════════════════════════════
+    # A4: Information Functions (1×3)
+    # ════════════════════════════════════════════════════════════════
     theta_range = np.linspace(-4, 4, 200)
-    fig, axes = plt.subplots(1, 3, figsize=(20, 5.5))
+    prompts_list = sorted(r2['prompt_map'].keys(),
+                          key=lambda x: r2['prompt_map'][x])
+
+    fig, axes = make_fig(n_panels=3, height_override=2.0) if _HAS_FIG_STYLE \
+        else plt.subplots(1, 3, figsize=(_W, 2.0))
     ti_1pl = compute_test_information(theta_range, r1, '1pl')
     ti_2pl = compute_test_information(theta_range, r2, '2pl')
-    ax = axes[0]; ax.plot(theta_range, ti_1pl, 'b-', linewidth=2, label='1PL'); ax.plot(theta_range, ti_2pl, 'r-', linewidth=2, label='2PL')
-    ax.set_xlabel('θ'); ax.set_ylabel('I(θ)'); ax.set_title('Test Information', fontweight='bold'); ax.legend(); ax.grid(True, alpha=0.3)
 
-    ax = axes[1]; prompts_list = sorted(r2['prompt_map'].keys(), key=lambda x: r2['prompt_map'][x])
+    ax = axes[0]
+    ax.plot(theta_range, ti_1pl, color=_c1, label='1PL')
+    ax.plot(theta_range, ti_2pl, color=_c2, label='2PL')
+    ax.set_xlabel(_L.get('theta_short', 'θ'))
+    ax.set_ylabel(r'$I(\theta)$')
+    ax.set_title('Test Information'); ax.legend()
+
+    ax = axes[1]
     alpha_sorted = np.argsort(r2['alpha_mean'])
     for pi in alpha_sorted[:3]:
         b, a = _to_scalar(r2['beta_mean'][pi]), _to_scalar(r2['alpha_mean'][pi])
-        ax.plot(theta_range, compute_item_information(theta_range, b, a), '--', alpha=0.7, label=f'α={a:.2f}')
+        ax.plot(theta_range, compute_item_information(theta_range, b, a),
+                ls='--', alpha=0.7, label=f'α={a:.2f}')
     for pi in alpha_sorted[-3:]:
         b, a = _to_scalar(r2['beta_mean'][pi]), _to_scalar(r2['alpha_mean'][pi])
-        ax.plot(theta_range, compute_item_information(theta_range, b, a), '-', linewidth=2, label=f'α={a:.2f}')
-    ax.set_xlabel('θ'); ax.set_ylabel('Item Info'); ax.set_title('Item Information (high vs low α)', fontweight='bold')
-    ax.legend(fontsize=7, ncol=2); ax.grid(True, alpha=0.3)
+        ax.plot(theta_range, compute_item_information(theta_range, b, a),
+                label=f'α={a:.2f}')
+    ax.set_xlabel(_L.get('theta_short', 'θ'))
+    ax.set_ylabel('Item Information')
+    ax.set_title('Item Info (high vs low α)')
+    ax.legend(fontsize=5, ncol=2)
 
-    ax = axes[2]; ax.scatter(r2['beta_mean'], r2['alpha_mean'], alpha=0.5, s=30, edgecolors='black', linewidth=0.3, c='steelblue')
-    ax.axhline(1.0, color='red', linestyle='--', alpha=0.5, label='α=1'); ax.set_xlabel('β'); ax.set_ylabel('α')
-    ax.set_title('Difficulty vs Discrimination', fontweight='bold'); ax.legend(); ax.grid(True, alpha=0.3)
-    plt.tight_layout(); plt.savefig(os.path.join(RESULTS_DIR, "A4_information_functions.png"), dpi=300, bbox_inches='tight'); plt.close()
-    print(f"  Saved: A4_information_functions.png")
+    ax = axes[2]
+    ax.scatter(r2['beta_mean'], r2['alpha_mean'], alpha=0.5, s=6,
+               edgecolors='black', linewidth=0.2, c=_c1)
+    ax.axhline(1.0, color=_c2, ls='--', alpha=0.5, lw=0.6, label='α=1')
+    ax.set_xlabel(_L.get('beta_short', 'β'))
+    ax.set_ylabel(_L.get('alpha_short', 'α'))
+    ax.set_title('Difficulty vs Discrimination')
+    ax.legend()
 
-    # ── Figure A.5: ICC Comparison ──
-    fig, axes_icc = plt.subplots(2, 4, figsize=(20, 9)); axes_flat = axes_icc.flatten()
-    alpha_order = np.argsort(r2['alpha_mean']); selected = list(alpha_order[:4]) + list(alpha_order[-4:])
+    _save(fig, os.path.join(RESULTS_DIR, "A4_information_functions.png"))
+    print(f"  Saved: A4_information_functions")
+
+    # ════════════════════════════════════════════════════════════════
+    # A5: ICC Comparison (2×4)
+    # ════════════════════════════════════════════════════════════════
+    fig, axes_icc = make_fig_grid(2, 4, height_override=1.8) if _HAS_FIG_STYLE \
+        else plt.subplots(2, 4, figsize=(_W, 3.6))
+    axes_flat = axes_icc.flatten()
+    alpha_order = np.argsort(r2['alpha_mean'])
+    selected = list(alpha_order[:4]) + list(alpha_order[-4:])
     for idx, pi in enumerate(selected):
-        ax = axes_flat[idx]; pname = prompts_list[pi] if pi < len(prompts_list) else str(pi)
-        b1_val = _to_scalar(r1['beta_mean'][pi]); b2_val = _to_scalar(r2['beta_mean'][pi]); a2 = _to_scalar(r2['alpha_mean'][pi])
-        ax.plot(theta_range, expit(theta_range - b1_val), 'b-', linewidth=2, label='1PL')
-        ax.plot(theta_range, expit(a2 * (theta_range - b2_val)), 'r-', linewidth=2, label='2PL')
-        ax.set_title(f'P{pname} (α={a2:.2f})', fontsize=10, fontweight='bold')
-        ax.set_ylim(-0.05, 1.05); ax.axhline(0.5, color='gray', linestyle=':', alpha=0.5); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
-    plt.suptitle('ICCs: 1PL vs 2PL (left=low α, right=high α)', fontsize=14, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.94]); plt.savefig(os.path.join(RESULTS_DIR, "A5_ICC_comparison.png"), dpi=300, bbox_inches='tight'); plt.close()
-    print(f"  Saved: A5_ICC_comparison.png")
+        ax = axes_flat[idx]
+        pname = prompts_list[pi] if pi < len(prompts_list) else str(pi)
+        b1_val = _to_scalar(r1['beta_mean'][pi])
+        b2_val = _to_scalar(r2['beta_mean'][pi])
+        a2 = _to_scalar(r2['alpha_mean'][pi])
+        ax.plot(theta_range, expit(theta_range - b1_val),
+                color=_c1, label='1PL')
+        ax.plot(theta_range, expit(a2 * (theta_range - b2_val)),
+                color=_c2, label='2PL')
+        ax.set_title(f'P{pname} (α={a2:.2f})')
+        ax.set_ylim(-0.05, 1.05)
+        ax.axhline(0.5, color='gray', ls=':', alpha=0.4, lw=0.4)
+        if idx == 0:
+            ax.legend(fontsize=5)
+    fig.suptitle(r'ICCs: 1PL vs 2PL (left = low $\alpha$, right = high $\alpha$)',
+                 y=1.01)
+    _save(fig, os.path.join(RESULTS_DIR, "A5_ICC_comparison.png"))
+    print(f"  Saved: A5_ICC_comparison")
 
-    # ── Figure A.6: GRM Category Curves ──
+    # ════════════════════════════════════════════════════════════════
+    # A6: GRM Category Curves (2×4)
+    # ════════════════════════════════════════════════════════════════
     if r_grm is not None and 'thresholds_mean' in r_grm:
-        fig, axes_g = plt.subplots(2, 4, figsize=(20, 9)); af = axes_g.flatten()
-        grm_prompts = sorted(r_grm['prompt_map'].keys(), key=lambda x: r_grm['prompt_map'][x])
+        fig, axes_g = make_fig_grid(2, 4, height_override=1.8) if _HAS_FIG_STYLE \
+            else plt.subplots(2, 4, figsize=(_W, 3.6))
+        af = axes_g.flatten()
+        grm_prompts = sorted(r_grm['prompt_map'].keys(),
+                             key=lambda x: r_grm['prompt_map'][x])
         step_g = max(1, r_grm['num_prompts'] // 8)
         selected_g = list(range(0, r_grm['num_prompts'], step_g))[:8]
-        cat_colors = ['#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#27ae60']
+        # 5 ordinal-safe colors for GRM score categories
+        cat_colors = [_c2, '#e67e22', '#f1c40f', '#27ae60', _c1]
         for idx, pi in enumerate(selected_g):
-            if idx >= 8: break
-            ax = af[idx]; thresh = r_grm['thresholds_mean'][pi]; a = _to_scalar(r_grm['alpha_mean'][pi])
-            n_t = len(thresh); cum = np.zeros((len(theta_range), n_t + 2)); cum[:, 0] = 1.0
-            for k in range(n_t): cum[:, k+1] = expit(a * (theta_range - thresh[k]))
-            for c in range(n_t + 1):
-                cp = cum[:, c] - cum[:, c+1]; ax.fill_between(theta_range, 0, cp, alpha=0.3, color=cat_colors[c])
-                ax.plot(theta_range, cp, color=cat_colors[c], linewidth=1.5, label=f'Score {c+1}')
+            if idx >= 8:
+                break
+            ax = af[idx]
+            thresh = r_grm['thresholds_mean'][pi]
+            a = _to_scalar(r_grm['alpha_mean'][pi])
+            n_t = len(thresh)
+            cum = np.zeros((len(theta_range), n_t + 2))
+            cum[:, 0] = 1.0
+            for k in range(n_t):
+                cum[:, k+1] = expit(a * (theta_range - thresh[k]))
+            for ci in range(n_t + 1):
+                cp = cum[:, ci] - cum[:, ci+1]
+                ax.fill_between(theta_range, 0, cp, alpha=0.25,
+                                color=cat_colors[ci])
+                ax.plot(theta_range, cp, color=cat_colors[ci],
+                        label=f'Score {ci+1}')
             pn = grm_prompts[pi] if pi < len(grm_prompts) else str(pi)
-            ax.set_title(f'P{pn} (α={a:.2f})', fontsize=10, fontweight='bold')
-            if idx == 0: ax.legend(fontsize=6, ncol=2)
-            ax.grid(True, alpha=0.2)
-        for idx in range(len(selected_g), 8): af[idx].set_visible(False)
-        plt.suptitle('GRM Category Response Functions', fontsize=14, fontweight='bold')
-        plt.tight_layout(rect=[0, 0, 1, 0.94]); plt.savefig(os.path.join(RESULTS_DIR, "A6_GRM_category_curves.png"), dpi=300, bbox_inches='tight'); plt.close()
-        print(f"  Saved: A6_GRM_category_curves.png")
+            ax.set_title(f'P{pn} (α={a:.2f})')
+            if idx == 0:
+                ax.legend(fontsize=4, ncol=2)
+        for idx in range(len(selected_g), 8):
+            af[idx].set_visible(False)
+        fig.suptitle('GRM Category Response Functions', y=1.01)
+        _save(fig, os.path.join(RESULTS_DIR, "A6_GRM_category_curves.png"))
+        print(f"  Saved: A6_GRM_category_curves")
 
-    # ── Summary Table ──
+    # ════════════════════════════════════════════════════════════════
+    # Summary Tables (unchanged)
+    # ════════════════════════════════════════════════════════════════
     summary = pd.DataFrame([
-        {'Model': '1PL', 'LL': comparison['ll_1pl'], 'AIC': comparison['aic_1pl'], 'BIC': comparison['bic_1pl'],
-         'N_params': r1['n_params'], 'Converged_step': r1['converged_at'], 'LR': r1['learning_rate'],
-         'Mean_Infit': item_fit_1pl['infit'].mean(), 'Misfit_Items': ((item_fit_1pl['infit'] > 1.3) | (item_fit_1pl['outfit'] > 1.3)).sum(),
+        {'Model': '1PL', 'LL': comparison['ll_1pl'], 'AIC': comparison['aic_1pl'],
+         'BIC': comparison['bic_1pl'], 'N_params': r1['n_params'],
+         'Converged_step': r1['converged_at'], 'LR': r1['learning_rate'],
+         'Mean_Infit': item_fit_1pl['infit'].mean(),
+         'Misfit_Items': ((item_fit_1pl['infit'] > 1.3) | (item_fit_1pl['outfit'] > 1.3)).sum(),
          'Person_Misfit': (person_fit_1pl['infit'] > 1.3).sum()},
-        {'Model': '2PL', 'LL': comparison['ll_2pl'], 'AIC': comparison['aic_2pl'], 'BIC': comparison['bic_2pl'],
-         'N_params': r2['n_params'], 'Converged_step': r2['converged_at'], 'LR': r2['learning_rate'],
-         'Mean_Infit': item_fit_2pl['infit'].mean(), 'Misfit_Items': ((item_fit_2pl['infit'] > 1.3) | (item_fit_2pl['outfit'] > 1.3)).sum(),
+        {'Model': '2PL', 'LL': comparison['ll_2pl'], 'AIC': comparison['aic_2pl'],
+         'BIC': comparison['bic_2pl'], 'N_params': r2['n_params'],
+         'Converged_step': r2['converged_at'], 'LR': r2['learning_rate'],
+         'Mean_Infit': item_fit_2pl['infit'].mean(),
+         'Misfit_Items': ((item_fit_2pl['infit'] > 1.3) | (item_fit_2pl['outfit'] > 1.3)).sum(),
          'Person_Misfit': (person_fit_2pl['infit'] > 1.3).sum(),
-         'Mean_Alpha': np.mean(r2['alpha_mean']), 'Std_Alpha': np.std(r2['alpha_mean'])},
-        {'Model': 'GRM', 'N_params': r_grm['n_params'] if r_grm else np.nan,
+         'Mean_Alpha': np.mean(r2['alpha_mean']),
+         'Std_Alpha': np.std(r2['alpha_mean'])},
+        {'Model': 'GRM',
+         'N_params': r_grm['n_params'] if r_grm else np.nan,
          'Converged_step': r_grm['converged_at'] if r_grm else np.nan,
          'LR': r_grm['learning_rate'] if r_grm else np.nan},
     ])
     summary.to_csv(os.path.join(RESULTS_DIR, "A_summary_table.csv"), index=False)
 
     # θ agreement across all models
-    agreement = [{'Comparison': 'θ (1PL vs 2PL)', 'Pearson r': comparison['r_theta']},
-                 {'Comparison': 'β (1PL vs 2PL)', 'Pearson r': comparison['r_beta']}]
+    agreement = [
+        {'Comparison': 'θ (1PL vs 2PL)', 'Pearson r': comparison['r_theta']},
+        {'Comparison': 'β (1PL vs 2PL)', 'Pearson r': comparison['r_beta']},
+    ]
     if r_grm is not None:
         cs = set(r1['student_map']) & set(r_grm['student_map'])
         if len(cs) >= 3:
@@ -825,7 +959,8 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
             r_1g, _ = pearsonr(t1g, tg)
             agreement.append({'Comparison': 'θ (1PL vs GRM)', 'Pearson r': r_1g})
             print(f"  θ (1PL vs GRM): r={r_1g:.4f}")
-    pd.DataFrame(agreement).to_csv(os.path.join(RESULTS_DIR, "A_parameter_agreement.csv"), index=False)
+    pd.DataFrame(agreement).to_csv(
+        os.path.join(RESULTS_DIR, "A_parameter_agreement.csv"), index=False)
 
     print(f"\n  Summary:\n{summary[['Model', 'LL', 'AIC', 'BIC', 'N_params', 'Converged_step']].to_string(index=False)}")
     return summary
@@ -864,4 +999,5 @@ def run_experiment_a():
 
 
 if __name__ == "__main__":
+    if _HAS_FIG_STYLE: apply_style()
     run_experiment_a()

@@ -374,15 +374,25 @@ def compute_correlations_and_plot():
     alphas = [1.0 if p < 0.05 else 0.3 for p in global_df["P_Value"]]
     bars = ax.barh(global_df["Metric"], global_df["Spearman_Rho"], color=colors,
                    edgecolor='black', linewidth=0.3)
+    
     for bar, a in zip(bars, alphas):
         bar.set_alpha(a)
-    for i, (rho, p) in enumerate(zip(global_df["Spearman_Rho"],
-                                      global_df["P_Value"])):
+        
+    for i, (rho, p) in enumerate(zip(global_df["Spearman_Rho"], global_df["P_Value"])):
         if p < 0.05:
-            offset = 0.005 if rho > 0 else -0.015
-            ax.text(rho + offset, i, "*", va="center",
-                    fontweight="bold")
+            # Dynamically align the star based on the bar's direction
+            if rho > 0:
+                ax.text(rho + 0.002, i, "*", va="center", ha="left", fontweight="bold", fontsize=16)
+            else:
+                ax.text(rho - 0.002, i, "*", va="center", ha="right", fontweight="bold", fontsize=16)
+                
     ax.axvline(0, color="black", linewidth=0.5)
+    
+    # Expand x-limits to ensure stars are not cut off or overlapping the spine
+    xmin, xmax = ax.get_xlim()
+    x_range = xmax - xmin
+    ax.set_xlim(xmin - (x_range * 0.15), xmax + (x_range * 0.1))
+    
     ax.set_title(f'Global: metric vs {LABELS["tau_short"]}')
     ax.set_xlabel(LABELS['rho'])
 

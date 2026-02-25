@@ -708,7 +708,8 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
                     label=f'Mean $\\Delta$={delta.mean():.4f}')
         ax.set_ylabel(r'$\Delta$AUC (full $-$ no ' + _tau + ')')
         ax.set_title(f'{ft}: {_tau} Contribution')
-        ax.legend(fontsize=5)
+        ax.margins(y=0.25)  # Adds 25% padding to the top/bottom of the y-axis
+        ax.legend(fontsize=5, loc='upper left')  # Anchors the legend so it won't float over data
 
     _sv(fig, os.path.join(RESULTS_DIR, "D_tau_ablation.png"))
     print(f"  Saved: D_tau_ablation")

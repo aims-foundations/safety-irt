@@ -461,9 +461,8 @@ def plot_language_divergence(lang_df, irt_model):
                 va='center', fontsize=4)
     ax.set_xlabel(r'QW $\kappa$')
     ax.set_title('Agreement by Language')
-    ax.legend(fontsize=4)
-
-    # Spearman
+    ax.set_xlim(0, 1.45)  # <--- Forces empty space on the right side
+    ax.legend(fontsize=4, loc='center right')
     ax = axes[2]
     ax.barh(lm_df['language'], lm_df['Spearman_rho'],
             color=_c1, edgecolor='black', linewidth=0.3)
@@ -473,6 +472,7 @@ def plot_language_divergence(lang_df, irt_model):
     ax.set_xlabel(r'Spearman $\rho$')
     ax.set_title('Correlation by Language')
 
+    fig.tight_layout()
     path = os.path.join(RESULTS_DIR,
                         f"language_divergence_{irt_model}.png")
     _save(fig, path)

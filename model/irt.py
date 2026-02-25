@@ -17,6 +17,18 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+# ── fig_style integration ──
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig, make_fig_grid,
+                           C_RED, C_BLUE, C_PURPLE, CMAP_DIV, add_identity_line)
+    _HAS_FIG_STYLE = True
+except ImportError:
+    _HAS_FIG_STYLE = False
+_save = fs_savefig if _HAS_FIG_STYLE else \
+    lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
 from tqdm import tqdm
 import os
 from huggingface_hub import snapshot_download
@@ -195,14 +207,17 @@ def train_and_extract():
         torch.save(pyro.get_param_store().get_state(), SAVE_MODEL_FILE)
         print(f"Model saved to '{SAVE_MODEL_FILE}'")
 
-        plt.figure(figsize=(10, 4))
+        _cr = C_RED if _HAS_FIG_STYLE else '#c0392b'
+        plt.figure(figsize=(5.5, 2.5))
         plt.plot(losses, alpha=0.3, label='Raw Loss')
         if len(losses) > 50:
             ma = np.convolve(losses, np.ones(50)/50, mode='valid')
-            plt.plot(range(49, len(losses)), ma, color='red', label='Smoothed')
-        plt.title("2PL Binary IRT Training Convergence")
-        plt.legend()
-        plt.savefig(os.path.join(RESULTS_DIR, "training_convergence.png"))
+            plt.plot(range(49, len(losses)), ma, color=_cr, label='Smoothed')
+        plt.title("2PL Training Convergence")
+        plt.legend(fontsize=6)
+        plt.savefig(os.path.join(RESULTS_DIR, "training_convergence.png"),
+                    dpi=300, bbox_inches='tight')
+        plt.close()
 
     # Extract results
     print("Sampling posterior...")
@@ -261,62 +276,61 @@ def train_and_extract():
 
 
 def plot_results():
+    if _HAS_FIG_STYLE:
+        apply_style()
+
     if not os.path.exists(SAVE_RESULTS_FILE):
         raise FileNotFoundError("Results file not found -- run training first")
 
     res_df = pd.read_csv(SAVE_RESULTS_FILE)
-    target_langs = res_df["language"].unique()
+    target_langs = sorted(res_df["language"].unique())
     n_langs = len(target_langs)
 
-    nrows, ncols = 3, 3
+    _cb = C_BLUE if _HAS_FIG_STYLE else '#5dade2'
+    _cr = C_RED  if _HAS_FIG_STYLE else '#c0392b'
 
-    fig, axes = plt.subplots(
-        nrows, ncols,
-        figsize=(6 * ncols, 7 * nrows),
-        sharex=True,
-        sharey=True
-    )
-    axes = axes.flatten()
+    nrows, ncols = 3, 3
+    if _HAS_FIG_STYLE:
+        fig, axes = make_fig_grid(nrows, ncols, height_override=2.0)
+    else:
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5.5, 5.5),
+                                 sharex=True, sharey=True)
+    axes_flat = axes.flatten()
 
     min_val = min(res_df["Base_Difficulty"].min(), res_df["Lang_Difficulty"].min())
     max_val = max(res_df["Base_Difficulty"].max(), res_df["Lang_Difficulty"].max())
-    palette = sns.color_palette("tab10")
 
     for i, lang in enumerate(target_langs):
         if i >= nrows * ncols:
             break
-        ax = axes[i]
+        ax = axes_flat[i]
         lang_data = res_df[res_df["language"] == lang]
         anchors = lang_data[lang_data["Is_Anchor"]]
         non_anchors = lang_data[~lang_data["Is_Anchor"]]
 
-        sns.scatterplot(
-            data=non_anchors, x="Base_Difficulty", y="Lang_Difficulty",
-            ax=ax, alpha=0.5, color=palette[i % 10], label="Normal"
-        )
+        ax.scatter(non_anchors["Base_Difficulty"], non_anchors["Lang_Difficulty"],
+                   color=_cb, alpha=0.35, s=8, edgecolors='none', label="Non-anchor")
 
         if not anchors.empty:
-            sns.scatterplot(
-                data=anchors, x="Base_Difficulty", y="Lang_Difficulty",
-                ax=ax, color="black", marker="*", s=100, label="Anchor"
-            )
+            ax.scatter(anchors["Base_Difficulty"], anchors["Lang_Difficulty"],
+                       color="black", marker="*", s=25, label="Anchor", zorder=5)
 
-        ax.plot([min_val, max_val], [min_val, max_val], "r--", label="Equal Difficulty")
+        ax.plot([min_val, max_val], [min_val, max_val],
+                color=_cr, ls='--', lw=0.6, alpha=0.7, label="Equal difficulty")
 
         taxed_rate = (non_anchors["Lang_Difficulty"] > non_anchors["Base_Difficulty"]).mean()
-        ax.set_title(f"{lang.upper()} (Taxed: {taxed_rate:.1%})", fontsize=14, fontweight="bold")
-        ax.set_xlabel(r"English Difficulty ($\beta_i$)")
-        ax.set_ylabel("Target Difficulty")
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8, loc="upper left")
+        ax.set_title(f"{lang} ({taxed_rate:.0%} taxed)")
+        ax.set_xlabel(r"$\beta_i$")
+        ax.set_ylabel(r"$\beta_i + \gamma_L + \tau_{iL}$")
+
+        # Legend only on last populated panel
+        if i == min(n_langs - 1, nrows * ncols - 1):
+            ax.legend(fontsize=4, loc='upper left')
 
     for j in range(n_langs, nrows * ncols):
-        axes[j].set_visible(False)
+        axes_flat[j].set_visible(False)
 
-    fig.suptitle("Bayesian Safety Cost (2PL Binary Model)", fontsize=18, fontweight="bold", y=0.995)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
-
-    plt.savefig(SAVE_PLOT_FILE, dpi=300, bbox_inches="tight")
+    _save(fig, SAVE_PLOT_FILE)
     print(f"Plot saved to '{SAVE_PLOT_FILE}'")
 
 

@@ -803,7 +803,8 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
         for fam in ['Claude', 'GPT', 'Gemini', 'Grok', 'DeepSeek']:
             if any(get_model_family(s) == fam for s in pf['student']):
                 ax.scatter([], [], c=_fc.get(fam, '#888'), s=15, label=fam)
-        ax.legend(fontsize=5, ncol=3, loc='upper right')
+        # CHANGED: Moved legend to lower right and reduced ncol
+        ax.legend(fontsize=5, ncol=2, loc='lower right')
     _save(fig, os.path.join(RESULTS_DIR, "A3_person_fit.png"))
     print(f"  Saved: A3_person_fit")
 
@@ -839,7 +840,8 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
     ax.set_xlabel(_L.get('theta_short', 'θ'))
     ax.set_ylabel('Item Information')
     ax.set_title('Item Info (high vs low α)')
-    ax.legend(fontsize=5, ncol=2)
+    # CHANGED: Moved legend to center right and reduced ncol
+    ax.legend(fontsize=5, ncol=1, loc='center right')
 
     ax = axes[2]
     ax.scatter(r2['beta_mean'], r2['alpha_mean'], alpha=0.5, s=6,
@@ -876,8 +878,9 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
         ax.axhline(0.5, color='gray', ls=':', alpha=0.4, lw=0.4)
         if idx == 0:
             ax.legend(fontsize=5)
+    # CHANGED: Increased y to 1.08 for title padding
     fig.suptitle(r'ICCs: 1PL vs 2PL (left = low $\alpha$, right = high $\alpha$)',
-                 y=1.01)
+                 y=1.08)
     _save(fig, os.path.join(RESULTS_DIR, "A5_ICC_comparison.png"))
     print(f"  Saved: A5_ICC_comparison")
 
@@ -917,7 +920,8 @@ def a3_a7_plots(r1, r2, r_grm, comparison, df):
                 ax.legend(fontsize=4, ncol=2)
         for idx in range(len(selected_g), 8):
             af[idx].set_visible(False)
-        fig.suptitle('GRM Category Response Functions', y=1.01)
+        # CHANGED: Increased y to 1.08 for title padding
+        fig.suptitle('GRM Category Response Functions', y=1.08)
         _save(fig, os.path.join(RESULTS_DIR, "A6_GRM_category_curves.png"))
         print(f"  Saved: A6_GRM_category_curves")
 

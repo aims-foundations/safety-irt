@@ -656,7 +656,10 @@ def b4_stochastic_profiles(df, consistency_df):
         kind='barh', stacked=True, ax=axes[0],
         color=[_c1, '#82c6b5', '#f0d070', '#e67e22', _c2])
     axes[0].set_title('Composition by Language')
-    axes[0].legend(fontsize=4, loc='lower right')
+    
+    # CHANGED: Moved legend to upper center beneath the plot to avoid overlapping bars
+    axes[0].legend(fontsize=4, loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
+    
     for _, row in boundary_by_lang.iterrows():
         axes[1].scatter(row['pct_boundary'], row['mean_entropy'],
                         s=25, color=_c3, edgecolors='black', linewidth=0.3)
@@ -665,6 +668,8 @@ def b4_stochastic_profiles(df, consistency_df):
                          fontsize=5, xytext=(2, 2), textcoords='offset points')
     axes[1].set_xlabel('\\% Boundary'); axes[1].set_ylabel('Mean Entropy')
     axes[1].set_title('Uncertainty Profile')
+    
+    fig.tight_layout()
     _save(fig, os.path.join(RESULTS_DIR, "B4_stochastic_profiles.png"))
 
     prompt_entropy = multi_pass.groupby('id').agg(mean_entropy=('entropy', 'mean'), mean_psafe=('mean_safe', 'mean'), n_models=('base_model', 'nunique'), n_langs=('language', 'nunique')).reset_index().sort_values('mean_entropy', ascending=False)
@@ -767,7 +772,8 @@ def b5_empirical_icc_validation(df, consistency_df, anchor_ids):
     ax.plot([0, 1], [0, 1], color=_c2, ls='--', lw=0.6)
     ax.set_xlabel('IRT $P$(safe)'); ax.set_ylabel('Empirical $P$(safe)')
     ax.set_title('By Language')
-    ax.legend(fontsize=3.5, ncol=2, markerscale=5)
+    
+    ax.legend(fontsize=3.5, ncol=3, loc='upper center', bbox_to_anchor=(0.5, -0.35), markerscale=5)
 
     ax = axes[2]; val_df['residual'] = val_df['empirical_p'] - val_df['irt_p']
     ax.hist(val_df['residual'], bins=100, edgecolor='black', linewidth=0.2,
@@ -776,6 +782,9 @@ def b5_empirical_icc_validation(df, consistency_df, anchor_ids):
     ax.set_xlabel('Residual'); ax.set_ylabel('Count')
     ax.set_title(f'Residuals\nMean={val_df["residual"].mean():.4f}, '
                  f'Std={val_df["residual"].std():.4f}')
+                 
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0.35, wspace=0.35)
     _save(fig, os.path.join(RESULTS_DIR, "B5_calibration.png"))
 
     # Example ICCs
@@ -812,7 +821,12 @@ def b5_empirical_icc_validation(df, consistency_df, anchor_ids):
         ax.set_xlabel(_L.get('theta_short', 'θ'))
         ax.set_ylabel('$P$(safe)')
         ax.set_title(f'Prompt {pid}')
-        ax.legend(fontsize=3.5, ncol=2); ax.set_ylim(-0.05, 1.05)
+        
+        # CHANGED: Legend shifted to upper left, and limited to 1 column so it misses the curve
+        ax.legend(fontsize=3.5, ncol=1, loc='upper left') 
+        ax.set_ylim(-0.05, 1.05)
+        
+    fig.tight_layout()
     _save(fig, os.path.join(RESULTS_DIR, "B5_example_ICCs.png"))
 
     val_df.to_csv(os.path.join(RESULTS_DIR, "B5_validation_data.csv"), index=False)

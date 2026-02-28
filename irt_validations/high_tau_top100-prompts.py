@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Extract top 100 highest |τ| prompt×language pairs with prompt text."""
+"""Extract top 100 highest τ (positive = harder in non-English) pairs."""
 
 import pandas as pd
 import os
@@ -17,11 +17,17 @@ def clean_id(x):
 
 # Load τ
 irt = pd.read_csv(IRT)
+print(f"IRT columns: {list(irt.columns)}")
 irt['prompt'] = irt['prompt'].apply(clean_id)
 tau = irt[~irt['Is_Anchor'] & (irt['language'] != 'en')].copy()
-tau['abs_tau'] = tau['Safety_Tax'].abs()
-top = tau.nlargest(100, 'abs_tau')[['prompt', 'language', 'Safety_Tax', 'abs_tau', 'Base_Difficulty', 'alpha']].copy()
-top = top.rename(columns={'prompt': 'id', 'Safety_Tax': 'tau', 'Base_Difficulty': 'beta'})
+
+# ── POSITIVE τ ONLY: harder/more dangerous in non-English ──
+tau = tau[tau['Safety_Tax'] > 0]
+want_cols = ['prompt', 'language', 'Safety_Tax', 'Base_Difficulty', 'alpha']
+have_cols = [c for c in want_cols if c in tau.columns]
+top = tau.nlargest(100, 'Safety_Tax')[have_cols].copy()
+rename_map = {'prompt': 'id', 'Safety_Tax': 'tau', 'Base_Difficulty': 'beta'}
+top = top.rename(columns={k: v for k, v in rename_map.items() if k in top.columns})
 
 # Get prompt text from master (one per id)
 master = pd.read_csv(MASTER, engine='python', on_bad_lines='skip')
@@ -34,12 +40,12 @@ for c in ['prompt', 'prompt_text', 'question', 'input']:
         break
 
 if prompt_col:
-    # English prompt text (one per id)
-    en_rows = master[master['language'] == 'en'].drop_duplicates('id')[['id', prompt_col]].copy()
+    en_rows = master[master['language'] == 'en'].drop_duplicates('id')[
+        ['id', prompt_col]].copy()
     en_rows = en_rows.rename(columns={prompt_col: 'prompt_en'})
 
-    # Translated prompt text (one per id+language)
-    trans_rows = master.drop_duplicates(['id', 'language'])[['id', 'language', prompt_col]].copy()
+    trans_rows = master.drop_duplicates(['id', 'language'])[
+        ['id', 'language', prompt_col]].copy()
     trans_rows = trans_rows.rename(columns={prompt_col: 'prompt_translated'})
 
     if 'category' in master.columns:
@@ -57,7 +63,8 @@ for mj_path in [MULTIJAIL,
     if os.path.exists(mj_path):
         mj = pd.read_csv(mj_path)
         mj['id'] = mj['id'].apply(clean_id)
-        tags = mj[mj['language'] == 'en'].drop_duplicates('id')[['id', 'tags']].copy()
+        tags = mj[mj['language'] == 'en'].drop_duplicates('id')[
+            ['id', 'tags']].copy()
         top = top.merge(tags, on='id', how='left')
         print(f"Added tags from {mj_path}")
         mj_found = True
@@ -65,7 +72,7 @@ for mj_path in [MULTIJAIL,
 if not mj_found:
     print("multijail.csv not found — tags column will be missing")
 
-top = top.sort_values('abs_tau', ascending=False).reset_index(drop=True)
+top = top.sort_values('tau', ascending=False).reset_index(drop=True)
 
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                    "results_qualitative_inspection")
@@ -74,9 +81,11 @@ path = os.path.join(out, "top100_high_tau_prompts.csv")
 top.to_csv(path, index=False)
 
 print(f"Saved: {path}")
-print(f"\nTop 20:")
+print(f"\nTop 20 (positive τ = harder/more dangerous in non-English):")
 for i, r in top.head(20).iterrows():
     cat = r.get('category', '?')
     txt = str(r.get('prompt_en', ''))[:80]
+    beta = f"β={r['beta']:.2f}" if 'beta' in r.index else ""
+    alpha = f"α={r['alpha']:.1f}" if 'alpha' in r.index else ""
     print(f"  {r['id']:>4} {r['language']:<3} τ={r['tau']:+.3f}  "
-          f"β={r['beta']:.2f}  α={r['alpha']:.1f}  [{cat}] {txt}")
+          f"{beta}  {alpha}  [{cat}] {txt}")

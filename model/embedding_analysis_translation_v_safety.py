@@ -19,6 +19,8 @@ import warnings
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 
+SEED = 42
+
 import pandas as pd
 import numpy as np
 import torch
@@ -27,6 +29,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from huggingface_hub import snapshot_download
 
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 # --- CONFIGURATION ---
 try:

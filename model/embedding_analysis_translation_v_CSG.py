@@ -30,6 +30,12 @@ from huggingface_hub import snapshot_download
 
 apply_style()
 
+SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 # --- CONFIGURATION ---
 try:
     print("Locating dataset snapshot...")

@@ -33,6 +33,10 @@ from tqdm import tqdm
 import os
 from huggingface_hub import snapshot_download
 
+SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
 DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
 ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors.csv")

@@ -31,6 +31,7 @@ from scipy.stats import pearsonr, spearmanr, linregress
 import os
 import re
 import warnings
+import torch
 
 warnings.filterwarnings('ignore')
 
@@ -77,7 +78,7 @@ FIT_GRM = False
 
 SEED = 42
 np.random.seed(SEED)
-
+torch.manual_seed(SEED)
 
 # ══════════════════════════════════════════════════════════════════════════
 # UTILITIES

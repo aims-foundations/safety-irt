@@ -18,7 +18,7 @@ Cross-validation strategies:
        Lookup baselines collapse to AUC=0.500; IRT maintains 0.75–0.91.
        Produces: D2_LOLO_results.csv, D_LOLO_heatmap.png
 
-  D3 — Random 80/20 (or Leave-One-Pass-Out if passes detected)
+  D3 — Random 80/20
        Standard interpolation benchmark. IRT full achieves AUC=0.931.
        Produces: D3_LOPO_results.csv, D_Random_heatmap.png
 
@@ -617,7 +617,6 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
     # ── Figure D.1: Bar plots per fold type ───────────────────────
     for fold_type, title in [('LOFO', 'Leave-One-Family-Out'),
                               ('LOLO', 'Leave-One-Language-Out'),
-                              ('LOPO', 'Leave-One-Pass-Out'),
                               ('Random', 'Random 80/20')]:
         sub = all_results[all_results['fold_type'] == fold_type]
         if len(sub) == 0:
@@ -655,7 +654,7 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
 
     # ── Figure D.2: Heatmaps ─────────────────────────────────────
     for fold_type, fold_name in [('LOFO', 'Family'), ('LOLO', 'Language'),
-                                  ('LOPO', 'Pass'), ('Random', 'Fold')]:
+                                  ('Random', 'Fold')]:
         sub = all_results[all_results['fold_type'] == fold_type]
         if len(sub) == 0:
             continue
@@ -683,11 +682,9 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
     else:
         fig, axes = plt.subplots(1, 3, figsize=(5.5, 2.5))
 
-    for ax_idx, ft in enumerate(['LOFO', 'LOLO', 'LOPO']):
+    for ax_idx, ft in enumerate(['LOFO', 'LOLO', 'Random']):
         ax = axes[ax_idx]
         sub = all_results[all_results['fold_type'] == ft]
-        if len(sub) == 0:
-            sub = all_results[all_results['fold_type'] == 'Random']
         if len(sub) == 0:
             ax.text(0.5, 0.5, 'No data', transform=ax.transAxes, ha='center')
             continue
@@ -796,7 +793,7 @@ def d4_plots(d1_df, d2_df, d3_df, df, anchor_ids):
 
     # ── Summary Table ──
     summary_lines = []
-    for ft in ['LOFO', 'LOLO', 'LOPO', 'Random']:
+    for ft in ['LOFO', 'LOLO', 'Random']:
         sub = all_results[all_results['fold_type'] == ft]
         if len(sub) == 0: continue
         for method in method_order:

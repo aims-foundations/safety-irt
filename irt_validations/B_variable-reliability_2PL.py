@@ -1021,8 +1021,8 @@ def b7_tau_stability(df, anchor_ids):
     _save = fs_savefig if _HAS_FIG_STYLE else lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
     _L = LABELS if _HAS_FIG_STYLE else {'theta_short': 'θ', 'beta_short': 'β', 'tau_short': 'τ'}
 
-    fig, all_axes = make_fig_grid(3, 3, height_override=1.8) if _HAS_FIG_STYLE \
-        else plt.subplots(3, 3, figsize=(5.5, 5.4))
+    fig, all_axes = make_fig_grid(4, 3, height_override=1.8) if _HAS_FIG_STYLE \
+        else plt.subplots(4, 3, figsize=(5.5, 7.2))
 
     # Row 0, col 0: correlation heatmap
     ax = all_axes[0, 0]; dm = corr_mat.copy(); dm[np.isnan(dm)] = 0
@@ -1071,8 +1071,8 @@ def b7_tau_stability(df, anchor_ids):
     # Rows 1-2: per-language scatter (up to 6)
     if len(scatter_all_df) > 0:
         langs_sorted = sorted(scatter_all_df['language'].unique())
-        pal = sns.color_palette("Set2", min(6, len(langs_sorted)))
-        for idx in range(min(6, len(langs_sorted))):
+        pal = sns.color_palette("Set2", min(9, len(langs_sorted)))
+        for idx in range(min(9, len(langs_sorted))):
             ax = all_axes[1 + idx//3, idx%3]; la = langs_sorted[idx]
             ld = scatter_all_df[scatter_all_df['language'] == la]
             xv = ld['tau_pass1'].values.astype(np.float64)
@@ -1088,7 +1088,7 @@ def b7_tau_stability(df, anchor_ids):
                         'k-', alpha=0.6, lw=0.6, label=f'$r$={rv:.3f}')
             ax.set_title(f'{la.upper()} (n={len(ld)})')
             ax.legend(fontsize=4)
-        for idx in range(min(6, len(langs_sorted)), 6):
+        for idx in range(min(9, len(langs_sorted)), 9):
             all_axes[1 + idx//3, idx%3].set_visible(False)
     else:
         for r in range(1, 3):

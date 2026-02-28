@@ -1,140 +1,177 @@
+# -*- coding: utf-8 -*-
+"""
+Power Simulation: Pass@K convergence for unidimensional IRT.
+Generates correlation heatmaps and scree plot.
+"""
 import sys
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
-import itertools
 
-# ==============================================================================
+# ── fig_style integration ──
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+try:
+    from fig_style import (apply_style, savefig as fs_savefig, make_fig,
+                           make_fig_grid, C_RED, C_BLUE, C_PURPLE,
+                           CMAP_SEQ, CMAP_DIV)
+    _HAS_FS = True
+except ImportError:
+    _HAS_FS = False
+
+_save = fs_savefig if _HAS_FS else \
+    lambda f, p: (f.savefig(p, dpi=300, bbox_inches='tight'), plt.close(f))
+
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+# ══════════════════════════════════════════════════════════════════════════
 # 1. CONFIGURATION
-# ==============================================================================
-NUM_MODELS = 65        
-NUM_PROMPTS = 3150     
-TRUE_DIMENSIONS = 1    # CHANGED: Now simulating a Unidimensional world
-TRIALS_TO_TEST = [1, 10, 30, 50, 70, 100, 500] # CHANGED: Added 30, 50, 70
+# ══════════════════════════════════════════════════════════════════════════
+NUM_MODELS = 65
+NUM_PROMPTS = 3150
+TRUE_DIMENSIONS = 1
+TRIALS_TO_TEST = [1, 10, 30, 50, 70, 100, 500]
 
-# ==============================================================================
-# 2. CREATE THE "GROUND TRUTH" (Unidimensional World)
-# ==============================================================================
-print(f"🌍 Generating Synthetic World with {NUM_MODELS} Models and {NUM_PROMPTS} Prompts...")
-print(f"   True Dimensions: {TRUE_DIMENSIONS}")
+# ══════════════════════════════════════════════════════════════════════════
+# 2. GROUND TRUTH (Unidimensional)
+# ══════════════════════════════════════════════════════════════════════════
+print(f"Generating synthetic world: {NUM_MODELS} models × {NUM_PROMPTS} prompts, "
+      f"d={TRUE_DIMENSIONS}")
 np.random.seed(42)
 
-# --- A. Define Latent Abilities for Models ---
-# Since TRUE_DIMENSIONS = 1, every model just has one "Safety Ability"
-# (e.g., General refusal capability)
 model_ability_f1 = np.random.uniform(0.1, 0.9, NUM_MODELS)
-
-# (Optional placeholder if you ever switch back to 2)
 if TRUE_DIMENSIONS == 2:
     model_ability_f2 = np.random.uniform(0.1, 0.9, NUM_MODELS)
 
-# --- B. Define Prompts ---
 true_probs = np.zeros((NUM_MODELS, NUM_PROMPTS))
-
 for p in range(NUM_PROMPTS):
     if TRUE_DIMENSIONS == 1:
-        # ALL prompts depend on the same single factor
         true_probs[:, p] = model_ability_f1 + np.random.normal(0, 0.05, NUM_MODELS)
     else:
-        # Split prompts between two factors
-        if p < NUM_PROMPTS // 2: 
+        if p < NUM_PROMPTS // 2:
             true_probs[:, p] = model_ability_f1 + np.random.normal(0, 0.05, NUM_MODELS)
         else:
             true_probs[:, p] = model_ability_f2 + np.random.normal(0, 0.05, NUM_MODELS)
 
-# Clip probabilities to valid 0-1 range
 true_probs = np.clip(true_probs, 0.01, 0.99)
-
-# Calculate the "True" Correlation Matrix
 true_corr = np.corrcoef(true_probs)
 
-# ==============================================================================
-# 3. RUN THE "POWER CALCULATION"
-# ==============================================================================
+# ══════════════════════════════════════════════════════════════════════════
+# 3. POWER CALCULATION
+# ══════════════════════════════════════════════════════════════════════════
 results = []
 eigenvalues_history = []
 
-print("⚡ Running Power Calculation...")
-
+print("Running power calculation ...")
 for k in TRIALS_TO_TEST:
-    # --- Step 1: Simulate Data Collection (Pass@K) ---
     success_counts = np.random.binomial(n=k, p=true_probs)
-    observed_scores = success_counts / k 
+    observed_scores = success_counts / k
 
-    # --- Step 2: Measure Correlation Recovery ---
     obs_corr = np.corrcoef(observed_scores)
     error = np.mean(np.abs(obs_corr - true_corr))
-    
-    # --- Step 3: Check Dimensionality (PCA Eigenvalues) ---
+
     pca = PCA(n_components=10)
     pca.fit(observed_scores)
     eigenvalues = pca.explained_variance_ratio_
-    
-    results.append({
-        "Pass@N": k,
-        "Error": error,
-        "Matrix": obs_corr
-    })
+
+    results.append({"Pass@N": k, "Error": error, "Matrix": obs_corr})
     eigenvalues_history.append(eigenvalues)
-    
-    print(f"   Pass@{k}: Reconstruction Error = {error:.4f}")
+    print(f"  Pass@{k}: ε = {error:.4f}")
 
-# ==============================================================================
+# ══════════════════════════════════════════════════════════════════════════
 # 4. VISUALIZATION
-# ==============================================================================
-# Adjust figure width to fit more plots
-plt.figure(figsize=(24, 5)) 
+# ══════════════════════════════════════════════════════════════════════════
+if _HAS_FS:
+    apply_style()
 
-# Plot 1: The "True" Correlation (Target)
-plt.subplot(1, len(TRIALS_TO_TEST) + 1, 1)
-sns.heatmap(true_corr, vmin=0, vmax=1, cbar=False, cmap="viridis")
-plt.title(f"TRUE Ground Truth\n({TRUE_DIMENSIONS} Dimension)")
+_c1 = C_BLUE   if _HAS_FS else '#2471a3'
+_c2 = C_PURPLE if _HAS_FS else '#7d3c98'
+_c3 = C_RED    if _HAS_FS else '#c0392b'
+_cmap = CMAP_SEQ if _HAS_FS else 'viridis'
 
-# Plot 2+: The Observed Correlations
+# ── Figure 1: Correlation heatmap strip ──
+n_total = len(TRIALS_TO_TEST) + 1          # ground truth + each Pass@K
+ncols = n_total
+if _HAS_FS:
+    fig, axes = make_fig_grid(1, ncols, height_override=1.0)
+else:
+    fig, axes = plt.subplots(1, ncols, figsize=(5.5, 1.0))
+axes_flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+
+sns.heatmap(true_corr, vmin=0, vmax=1, cbar=False, cmap=_cmap,
+            ax=axes_flat[0], xticklabels=False, yticklabels=False)
+axes_flat[0].set_title('True')
+axes_flat[0].set_aspect('equal')
+
 for i, res in enumerate(results):
-    plt.subplot(1, len(TRIALS_TO_TEST) + 1, i + 2)
-    sns.heatmap(res["Matrix"], vmin=0, vmax=1, cbar=False, cmap="viridis")
-    plt.title(f"Pass@{res['Pass@N']}\nErr: {res['Error']:.3f}")
+    ax = axes_flat[i + 1]
+    sns.heatmap(res["Matrix"], vmin=0, vmax=1, cbar=False, cmap=_cmap,
+                ax=ax, xticklabels=False, yticklabels=False)
+    ax.set_title(f'Pass@{res["Pass@N"]}')
+    ax.set_aspect('equal')
+    # ε inside bottom-right of panel
+    n = res["Matrix"].shape[0]
+    ax.text(n * 0.95, n * 0.95,
+            f'$\\varepsilon$={res["Error"]:.3f}',
+            ha='right', va='bottom', fontsize=3.5,
+            color='white', bbox=dict(fc='black', alpha=0.5, pad=0.5, lw=0))
 
-plt.tight_layout()
-plt.show()
+path1 = os.path.join(RESULTS_DIR, "power_correlation_heatmaps.png")
+_save(fig, path1)
+print(f"  Saved: {os.path.basename(path1)}")
 
-# Plot 6: Scree Plot (Eigenvalues)
-plt.figure(figsize=(10, 5))
-# Extended marker list to handle 7 lines
-markers = itertools.cycle(['o', 's', '^', 'D', 'v', '<', '>', 'p', '*'])
+# ── Figure 2: Scree plot ──
+if _HAS_FS:
+    fig, ax = make_fig(n_panels=1, height_override=2.2)
+    if isinstance(ax, np.ndarray):
+        ax = ax[0]
+else:
+    fig, ax = plt.subplots(figsize=(5.5, 2.2))
+
+# 3-color cycling: blue → purple → red, repeating
+_colors = [_c1, _c2, _c3]
+_styles = ['-', '--', '-.', ':', '-', '--', '-.']
+_markers = ['o', 's', '^', 'D', 'v', '<', '>']
 
 for i, ev in enumerate(eigenvalues_history):
     k = TRIALS_TO_TEST[i]
-    plt.plot(range(1, 11), ev, marker=next(markers), label=f'Pass@{k}', linewidth=2)
+    ax.plot(range(1, 11), ev,
+            marker=_markers[i % len(_markers)],
+            color=_colors[i % len(_colors)],
+            ls=_styles[i % len(_styles)],
+            lw=0.8, markersize=2.5,
+            label=f'Pass@{k}')
 
-plt.xlabel('Principal Component Index')
-plt.ylabel('Explained Variance Ratio')
-plt.title('Scree Plot: Convergence to 1 Dimension')
-plt.grid(True, alpha=0.3)
-plt.legend()
-plt.show()
+ax.set_xlabel('Principal component')
+ax.set_ylabel('Explained variance ratio')
+ax.set_title(f'Scree plot: convergence to $d={TRUE_DIMENSIONS}$')
+ax.legend(fontsize=4, ncol=4, loc='upper right',
+          handlelength=1.5, columnspacing=0.8)
 
-# ==============================================================================
-# 5. SAVE RESULTS
-# ==============================================================================
-print("\n💾 Saving results to disk...")
+path2 = os.path.join(RESULTS_DIR, "power_scree_plot.png")
+_save(fig, path2)
+print(f"  Saved: {os.path.basename(path2)}")
 
-summary_data = [{"Pass@N": r["Pass@N"], "Reconstruction_Error": r["Error"]} for r in results]
-pd.DataFrame(summary_data).to_csv("power_simulation_summary.csv", index=False)
-print("   ✅ Metrics saved to 'power_simulation_summary.csv'")
+# ══════════════════════════════════════════════════════════════════════════
+# 5. SAVE TABLES
+# ══════════════════════════════════════════════════════════════════════════
+summary_data = [{"Pass@N": r["Pass@N"], "Reconstruction_Error": r["Error"]}
+                for r in results]
+pd.DataFrame(summary_data).to_csv(
+    os.path.join(RESULTS_DIR, "power_simulation_summary.csv"), index=False)
 
-df_eigen = pd.DataFrame(eigenvalues_history, 
-                        index=[f"Pass@{r['Pass@N']}" for r in results],
-                        columns=[f"PC{i+1}" for i in range(len(eigenvalues_history[0]))])
-df_eigen.to_csv("power_simulation_eigenvalues.csv")
-print("   ✅ Eigenvalues saved to 'power_simulation_eigenvalues.csv'")
+df_eigen = pd.DataFrame(
+    eigenvalues_history,
+    index=[f"Pass@{r['Pass@N']}" for r in results],
+    columns=[f"PC{i+1}" for i in range(len(eigenvalues_history[0]))])
+df_eigen.to_csv(os.path.join(RESULTS_DIR, "power_simulation_eigenvalues.csv"))
 
 matrix_stack = np.array([r["Matrix"] for r in results])
-np.savez_compressed("power_matrices.npz", 
-                    matrices=matrix_stack, 
-                    pass_n=TRIALS_TO_TEST, 
-                    true_matrix=true_corr)
-print("   ✅ Correlation matrices saved to 'power_matrices.npz'")
+np.savez_compressed(
+    os.path.join(RESULTS_DIR, "power_matrices.npz"),
+    matrices=matrix_stack, pass_n=TRIALS_TO_TEST, true_matrix=true_corr)
+
+print("Done.")

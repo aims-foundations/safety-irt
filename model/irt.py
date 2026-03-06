@@ -226,7 +226,7 @@ def train_and_extract():
     # Extract results
     print("Sampling posterior...")
     predictive = Predictive(model_2pl, guide=guide, num_samples=500,
-                            return_sites=["beta", "gamma", "tau", "alpha"])
+                            return_sites=["beta", "gamma", "tau", "alpha", "theta", "delta"])
     samples = predictive(student_idx, prompt_idx, lang_idx, None,
                          num_students, num_prompts, num_langs, tau_mask, gamma_mask)
 
@@ -276,6 +276,35 @@ def train_and_extract():
 
     res_df = pd.DataFrame(results)
     res_df.to_csv(SAVE_RESULTS_FILE, index=False)
+    # ── Save theta per test_taker ─────────────────────────────────
+    mean_theta = samples['theta'].mean(dim=0).detach().cpu().numpy().reshape(-1)
+    mean_delta = samples['delta'].mean(dim=0).detach().cpu().numpy()
+    if mean_delta.ndim > 2:
+        mean_delta = mean_delta.squeeze()
+
+    theta_rows = []
+    for s_name, s_idx in student_map.items():
+        if s_idx < len(mean_theta):
+            theta_rows.append({'test_taker': s_name, 'theta': mean_theta[s_idx]})
+    theta_df = pd.DataFrame(theta_rows)
+    theta_path = os.path.join(RESULTS_DIR, "theta_person_params.csv")
+    theta_df.to_csv(theta_path, index=False)
+    print(f"Theta saved to '{theta_path}' ({len(theta_df)} test_takers)")
+
+    # ── Save delta per (test_taker, language) ─────────────────────
+    delta_rows = []
+    for s_name, s_idx in student_map.items():
+        for l_name, l_idx in lang_map.items():
+            if s_idx < mean_delta.shape[0] and l_idx < mean_delta.shape[1]:
+                delta_rows.append({
+                    'test_taker': s_name,
+                    'language': l_name,
+                    'delta': mean_delta[s_idx, l_idx],
+                })
+    delta_df = pd.DataFrame(delta_rows)
+    delta_path = os.path.join(RESULTS_DIR, "delta_person_params.csv")
+    delta_df.to_csv(delta_path, index=False)
+    print(f"Delta saved to '{delta_path}' ({len(delta_df)} rows)")
     print(f"Results saved to '{SAVE_RESULTS_FILE}' ({len(res_df)} rows)")
 
 

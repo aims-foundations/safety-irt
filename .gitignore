@@ -16,6 +16,7 @@ venv/
 myenv/
 .venv/
 env/
+irt_validations/.DS_Store
 
 # Python caches
 __pycache__/

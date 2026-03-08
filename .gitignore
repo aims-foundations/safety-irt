@@ -16,6 +16,7 @@ venv/
 myenv/
 .venv/
 env/
+irt_validations/.DS_Store
 
 # Python caches
 __pycache__/
@@ -37,6 +38,7 @@ __pycache__/
 
 # Model results
 model/results/
+model/results*/
 irt_validations/results*/
 
 # IDE

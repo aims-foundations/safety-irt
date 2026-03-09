@@ -132,6 +132,15 @@ def load_irt(students, prompts, languages):
         gamma_mask[l_map['en']] = 0.0
     gamma = gamma_raw * gamma_mask
 
+    # ── δ from .pt ────────────────────────────────────────────────
+    delta_raw = params.get('AutoNormal.locs.delta_raw', None)
+    if delta_raw is not None:
+        delta_raw = delta_raw.detach().cpu().numpy()
+        delta_mask = gamma_mask[np.newaxis, :]  # (1, n_langs)
+        delta = delta_raw * delta_mask
+    else:
+        delta = np.zeros((len(students), len(languages)))
+
     theta_dict = {s: theta_locs[i] for i, s in enumerate(students)}
     gamma_dict = {l: gamma[l_map[l]] for l in languages}
 
@@ -160,6 +169,7 @@ def load_irt(students, prompts, languages):
         'theta_dict': theta_dict,
         'gamma':      gamma,
         'gamma_dict': gamma_dict,
+        'delta':delta,
         'tau_lookup': tau_lookup,
         'beta_lookup':beta_lookup,
         'alph_lookup':alph_lookup,
@@ -172,40 +182,51 @@ def load_irt(students, prompts, languages):
 
 def fit_glmm(df, sc, students, prompts, languages):
     """
-    BinomialBayesMixedGLM with four variance components:
-      0: model (student)  →  u_j  ≈  θ_j
-      1: prompt           →  v_i  ≈  β_i
-      2: language         →  w_L  ≈  γ_L  (English column dropped)
-      3: prompt×language  →  x_iL ≈  τ_iL (English cells dropped)
+    BinomialBayesMixedGLM with five variance components:
+      0: model (student)       →  u_j   ≈  θ_j
+      1: prompt                →  v_i   ≈  β_i
+      2: language              →  w_L   ≈  γ_L
+      3: prompt×language       →  x_iL  ≈  τ_iL
+      4: model×language        →  d_jL  ≈  δ_jL
     """
     print("\nBuilding GLMM design matrices (sparse)...")
     non_en = [l for l in languages if l != 'en']
 
-    Z_model  = one_hot_sparse(df[sc].values,          students)
-    Z_prompt = one_hot_sparse(df['id'].values,         prompts)
-    Z_lang   = one_hot_sparse(df['language'].values,   non_en +['en'])  # need all for indexing
-    # Drop English column
-    en_col   = len(non_en)          # English is appended last
+    Z_model  = one_hot_sparse(df[sc].values, students)
+    Z_prompt = one_hot_sparse(df['id'].values, prompts)
     Z_lang   = one_hot_sparse(df['language'].values, non_en + ['en'])[:, :len(non_en)]
 
+    # prompt×language interaction (English dropped)
     inter_cats   = [f"{p}:{l}" for p in prompts for l in non_en]
     inter_labels = (df['id'].astype(str) + ':' + df['language'].astype(str)).values
-    # Keep only non-English rows in interaction (English obs get a zero row implicitly)
     valid_inter  = set(inter_cats)
     inter_labels_safe = np.where(np.isin(inter_labels, list(valid_inter)),
-                                  inter_labels, inter_cats[0])   # dummy for en rows
+                                  inter_labels, inter_cats[0])
     Z_inter = one_hot_sparse(inter_labels_safe, inter_cats)
-    # Zero out rows that correspond to English (no interaction for reference lang)
     en_mask = (df['language'] == 'en').values
     Z_inter = Z_inter.copy()
     Z_inter[en_mask, :] = 0
 
-    Z     = sp_hstack([Z_model, Z_prompt, Z_lang, Z_inter], format='csc')
+    # model×language interaction (English dropped) — approximates δ_jL
+    ml_cats   = [f"{s}|{l}" for s in students for l in non_en]
+    ml_labels = (df[sc].astype(str) + '|' + df['language'].astype(str)).values
+    valid_ml  = set(ml_cats)
+    ml_labels_safe = np.where(np.isin(ml_labels, list(valid_ml)),
+                               ml_labels, ml_cats[0])
+    Z_ml = one_hot_sparse(ml_labels_safe, ml_cats)
+    Z_ml = Z_ml.copy()
+    Z_ml[en_mask, :] = 0
+
+    Z     = sp_hstack([Z_model, Z_prompt, Z_lang, Z_inter, Z_ml], format='csc')
     ident = np.array([0]*len(students) + [1]*len(prompts) +
-                     [2]*len(non_en)   + [3]*len(inter_cats))
+                     [2]*len(non_en)   + [3]*len(inter_cats) +
+                     [4]*len(ml_cats))
 
     print(f"  Z: {Z.shape[0]:,} rows × {Z.shape[1]:,} cols | "
           f"{Z.nnz:,} non-zeros")
+    print(f"  Variance components: model({len(students)}), prompt({len(prompts)}), "
+          f"lang({len(non_en)}), prompt×lang({len(inter_cats)}), "
+          f"model×lang({len(ml_cats)})")
 
     endog  = df['score'].values.astype(float)
     exog   = np.ones((len(df), 1))
@@ -215,35 +236,36 @@ def fit_glmm(df, sc, students, prompts, languages):
     result = glmm.fit_vb()
 
     intercept = result.params[0]
-    re        = result.random_effects          # (Z.shape[1],)
+    re        = result.random_effects
 
     ns  = len(students)
     np_ = len(prompts)
     nl  = len(non_en)
+    ni  = len(inter_cats)
 
     model_re  = re[:ns]
     prompt_re = re[ns:ns+np_]
     lang_re   = re[ns+np_:ns+np_+nl]
-    inter_re  = re[ns+np_+nl:]
+    inter_re  = re[ns+np_+nl:ns+np_+nl+ni]
+    ml_re     = re[ns+np_+nl+ni:]
 
     print(f"  Intercept: {intercept:.3f}")
 
-    # In-sample predicted probabilities
     probs_glmm = result.predict()
 
     return {
-        'model_re':   model_re,    # (ns,) aligned to students
-        'prompt_re':  prompt_re,   # (np_,) aligned to prompts
-        'lang_re':    lang_re,     # (nl,) aligned to non_en
-        'inter_re':   inter_re,    # aligned to inter_cats
+        'model_re':   model_re,
+        'prompt_re':  prompt_re,
+        'lang_re':    lang_re,
+        'inter_re':   inter_re,
+        'ml_re':      ml_re,
         'inter_cats': inter_cats,
+        'ml_cats':    ml_cats,
         'non_en':     non_en,
         'probs':      probs_glmm,
         'intercept':  intercept,
         'result':     result,
     }
-
-
 # ── align and compare ─────────────────────────────────────────────────────────
 
 def build_comparison_tables(irt, glmm, students, prompts, languages):
@@ -291,35 +313,54 @@ def build_comparison_tables(irt, glmm, students, prompts, languages):
             })
     tau_df = pd.DataFrame(tau_rows)
 
-    return theta_df, gamma_df, tau_df
+    # ── δ ──────────────────────────────────────────────────────────
+    ml_idx = {s: i for i, s in enumerate(glmm['ml_cats'])}
+    delta_rows = []
+    for si, student in enumerate(students):
+        for lang in non_en:
+            mkey = f"{student}|{lang}"
+            if mkey not in ml_idx:
+                continue
+            delta_rows.append({
+                'model':      student,
+                'language':   lang,
+                'delta_IRT':  irt['delta'][si, l_map[lang]],
+                'd_GLMM':    glmm['ml_re'][ml_idx[mkey]],
+            })
+    delta_comp_df = pd.DataFrame(delta_rows)
+
+    return theta_df, gamma_df, tau_df, delta_comp_df
 
 
-def compute_metrics(theta_df, gamma_df, tau_df):
+def compute_metrics(theta_df, gamma_df, tau_df, delta_df):
     rows = []
 
-    # θ
-    rho, _ = spearmanr(theta_df['theta_IRT'], theta_df['u_GLMM'])
-    r,   _ = pearsonr(theta_df['theta_IRT'],  theta_df['u_GLMM'])
-    rmse   = np.sqrt(np.mean((theta_df['theta_IRT'] - theta_df['u_GLMM'])**2))
-    rows.append({'param': 'θ (model ability)',     'n': len(theta_df),
-                 'spearman_rho': rho, 'pearson_r': r, 'rmse': rmse})
+    for label, col_irt, col_glmm, source_df in [
+        ('θ (model ability)',      'theta_IRT', 'u_GLMM',  theta_df),
+        ('γ (language shift)',     'gamma_IRT', 'w_GLMM',  gamma_df),
+        ('τ (cross-lingual gap)',  'tau_IRT',   'x_GLMM',  tau_df),
+        ('δ (model×lang aptitude)','delta_IRT', 'd_GLMM',  delta_df),
+    ]:
+        a = source_df[col_irt].values
+        b = source_df[col_glmm].values
+        if len(a) < 3:
+            rows.append({'param': label, 'n': len(a),
+                         'spearman_rho': np.nan, 'pearson_r': np.nan,
+                         'rmse_raw': np.nan, 'rmse_zscored': np.nan})
+            continue
 
-    # γ
-    if len(gamma_df) >= 3:
-        rho, _ = spearmanr(gamma_df['gamma_IRT'], gamma_df['w_GLMM'])
-        r,   _ = pearsonr(gamma_df['gamma_IRT'],  gamma_df['w_GLMM'])
-    else:
-        rho = r = np.nan
-    rmse = np.sqrt(np.mean((gamma_df['gamma_IRT'] - gamma_df['w_GLMM'])**2))
-    rows.append({'param': 'γ (language shift)',    'n': len(gamma_df),
-                 'spearman_rho': rho, 'pearson_r': r, 'rmse': rmse})
+        rho, _ = spearmanr(a, b)
+        r, _   = pearsonr(a, b)
+        rmse_raw = np.sqrt(np.mean((a - b) ** 2))
 
-    # τ
-    rho, _ = spearmanr(tau_df['tau_IRT'], tau_df['x_GLMM'])
-    r,   _ = pearsonr(tau_df['tau_IRT'],  tau_df['x_GLMM'])
-    rmse   = np.sqrt(np.mean((tau_df['tau_IRT'] - tau_df['x_GLMM'])**2))
-    rows.append({'param': 'τ (cross-lingual gap)', 'n': len(tau_df),
-                 'spearman_rho': rho, 'pearson_r': r, 'rmse': rmse})
+        # Z-score both before RMSE for scale-free comparison
+        a_z = (a - a.mean()) / max(a.std(), 1e-8)
+        b_z = (b - b.mean()) / max(b.std(), 1e-8)
+        rmse_z = np.sqrt(np.mean((a_z - b_z) ** 2))
+
+        rows.append({'param': label, 'n': len(a),
+                     'spearman_rho': rho, 'pearson_r': r,
+                     'rmse_raw': rmse_raw, 'rmse_zscored': rmse_z})
 
     return pd.DataFrame(rows)
 
@@ -380,7 +421,15 @@ def irt_predictions(df, sc, students, prompts, languages, irt):
     pi = df['id'].map(p_map).values
     li = df['language'].map(l_map).values
 
-    logits = alpha[pi] * (theta_locs[si] - (beta_locs[pi] + gamma[li] + tau[pi, li]))
+    # After loading other params, add:
+    delta_raw = params.get('AutoNormal.locs.delta_raw', None)
+    if delta_raw is not None:
+        delta = delta_raw.detach().cpu().numpy() * gamma_mask[np.newaxis, :]
+    else:
+        delta = np.zeros((len(students), len(languages)))
+
+    # Replace the logits line:
+    logits = alpha[pi] * ((theta_locs[si] + delta[si, li]) - (beta_locs[pi] + gamma[li] + tau[pi, li]))
     return 1.0 / (1.0 + np.exp(-np.clip(logits, -30, 30)))
 
 
@@ -552,11 +601,11 @@ def main():
 
     # Align parameters
     print("\nBuilding comparison tables...")
-    theta_df, gamma_df, tau_df = build_comparison_tables(
+    theta_df, gamma_df, tau_df, delta_df = build_comparison_tables(
         irt, glmm, students, prompts, languages)
 
     # Metrics
-    metrics_df  = compute_metrics(theta_df, gamma_df, tau_df)
+    metrics_df = compute_metrics(theta_df, gamma_df, tau_df, delta_df)
     irt_probs   = irt_predictions(df, sc, students, prompts, languages, irt)
     pred_df     = compute_predictive_metrics(df, irt_probs, glmm['probs'])
 
@@ -564,6 +613,7 @@ def main():
     theta_df.to_csv(os.path.join(RESULTS_DIR, "theta_comparison.csv"),   index=False)
     gamma_df.to_csv(os.path.join(RESULTS_DIR, "gamma_comparison.csv"),   index=False)
     tau_df.to_csv(  os.path.join(RESULTS_DIR, "tau_comparison.csv"),     index=False)
+    delta_df.to_csv(os.path.join(RESULTS_DIR, "delta_comparison.csv"), index=False)
     metrics_df.to_csv(os.path.join(RESULTS_DIR, "param_correspondence.csv"), index=False)
     pred_df.to_csv(   os.path.join(RESULTS_DIR, "predictive_metrics.csv"))
 

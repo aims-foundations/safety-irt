@@ -2,7 +2,7 @@
 
 ## Motivation
 
-Large Language Models (LLMs) show significant safety degradation in non-English, low-resource languages like Swahili and Javanese. Current metrics like Jailbreak Success Rate (JSR) use binary Safe/Unsafe labels, which fail to distinguish between a model's lack of safety alignment and the inherent difficulty introduced by translation.
+Large Language Models (LLMs) often show weaker safety performance outside English, especially in lower-resource languages. Standard metrics such as Jailbreak Success Rate (JSR) collapse this behavior into a single safe/unsafe rate, making it difficult to determine whether degradation comes from weaker underlying safety alignment, general language difficulty, prompt-specific translation effects, or model-specific multilingual competence.
 
 This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to decouple these factors, allowing for more targeted alignment and fairer benchmarking.
 
@@ -11,7 +11,7 @@ This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to 
 We use a **Many-Facet Rasch Model** to jointly estimate safety parameters:
 
 ```
-P(Safe) = σ(θ - (β + γ + τ + δ))
+P(Safe) = σ(\alpha_i[θ - (β + γ + τ + δ)])
 ```
 
 | Parameter | Meaning |
@@ -21,6 +21,7 @@ P(Safe) = σ(θ - (β + γ + τ + δ))
 | **γ** (gamma) | Global language fluency shift |
 | **τ** (tau) | Translation safety cost (prompt-specific drift) — core research variable |
 | **δ** (delta) | Model-language competence |
+| **α** (alpha) | Prompt discrimination (how diagnostic a prompt is) |
 
 A **hierarchical shrinkage prior** (Horseshoe) is applied to τ for sparsity and stability.
 
@@ -44,23 +45,28 @@ safety-irt/
 ├── model/                     # IRT + EFA model fitting
 │   ├── irt.py                 # 2PL Binary IRT with anchoring constraints (Pyro SVI)
 │   ├── efa.py                 # Exploratory Factor Analysis + JSR heatmap
-│   ├── anchors.py             # Anchor prompt selection utilities
+│   ├── anchors.py             # Anchor prompt selection utilities using Iterative Purification
 │   └── results/               # Saved model params, plots, CSVs
-|   └── embedding_analysis_translation_v_CSG.py   #Translation quality verus cross-lingual safety gap
-|   └── embedding_analysis_translation_v_safety.py   #Translation quality verus safety
+|   └── deprecated/               # Old, to be removed
+|   └── anchor_validations/               # Anchor selection validation using MTT + comparision files
+|   └── human_translation_validation/        # Human labeled translation quality verus CSG + Safety
+|   ├── embedding_analysis_translation_v_CSG.py   #Translation quality verus cross-lingual safety gap
+|   ├── embedding_analysis_translation_v_safety.py   #Translation quality verus safety
+|   ├── response_matrix.py             # Creates response_matrices images
 │
 ├── irt_validations/           # Post-estimation validation and analysis experiments
 │   ├── A_model-selection.py   # Experiment A: 1PL vs 2PL vs GRM; AIC/BIC; item/person fit
 │   ├── B_variable-reliability_2PL.py  # Experiment B (2PL): split-half, ICC, τ stability
 │   ├── D_predictive-validation_2PL.py # Experiment D (2PL): LOFO, LOLO, CV; τ ablation
+│   ├── anchor_sensitivity_ablation.py # 
 │   ├── jsr_difficulty.py      # Post-hoc JSR vs θ and JSR_lang vs (θ+δ) analysis
 │   ├── jsr_irt_analysis.py    # Rank divergence: RMSRD, QWK, top movers, heatmaps
 │   ├── jsr_irt_ordering.py    # Ability heatmaps: JSR vs (θ+δ), English focus, rank Δ
-│   ├── results_experiment_A/  # Model selection outputs
-│   ├── results_experiment_B/  # Reliability outputs
-│   ├── results_experiment_D/  # Predictive validation outputs
-│   ├── results_jsr_theta_posthoc/  # JSR vs θ scatter plots, correlation CSVs
-│   ├── results_rank_divergence/    # Divergence metrics, top movers, family heatmaps
+│   └── results_experiment_A/  # Model selection outputs
+│   └── results_experiment_B/  # Reliability outputs
+│   └── results_experiment_D/  # Predictive validation outputs
+│   └── results_jsr_theta_posthoc/  # JSR vs θ scatter plots, correlation CSVs
+│   └── results_rank_divergence/    # Divergence metrics, top movers, family heatmaps
 │   └── results_ability_heatmaps/   # Dual heatmaps, English focus, rank discrepancy
 │
 ├── data_curation/             # Data collection, grading, and ablation pipelines

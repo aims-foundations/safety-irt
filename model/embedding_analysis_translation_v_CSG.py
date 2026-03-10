@@ -54,7 +54,9 @@ MULTIJAIL_FILE = os.path.join(DATA_DIR, "multijail.csv")
 OUTPUT_CSV_DATA = os.path.join(RESULTS_DIR, "multimetric_translation_v_DIF.csv")
 OUTPUT_CSV_LANG = os.path.join(RESULTS_DIR, "multimetric_translation_v_DIF_Lang.csv")
 OUTPUT_CSV_CAT = os.path.join(RESULTS_DIR, "multimetric_translation_v_DIF_Cat.csv")
+OUTPUT_CSV_SUMMARY = os.path.join(RESULTS_DIR, "multimetric_translation_v_DIF_Summary.csv")
 OUTPUT_PLOT = os.path.join(RESULTS_DIR, "Analysis_MultiMetric_vs_SafetyTax.png")
+
 
 BATCH_SIZE_LABSE = 256
 BATCH_SIZE_COMET = 64
@@ -308,7 +310,69 @@ METRIC_LABELS = {
     "xcomet_xl": "XCOMET-XL",
 }
 
+def summarize_metric_across_languages(df, metric, min_n=10):
+    """
+    Summarize within-language associations for one metric.
 
+    Returns:
+      - mean_rho: unweighted mean of per-language Spearman rho
+      - median_rho: median of per-language Spearman rho
+      - weighted_mean_rho: mean weighted by language sample size
+      - n_languages: number of languages included
+      - pos_langs / neg_langs / null_langs: sign breakdown
+      - sig_pos / sig_neg: significant sign breakdown
+      - pooled_rho / pooled_p / pooled_n: pooled correlation across all rows
+    """
+    per_lang = []
+    for lang in sorted(df["language"].dropna().unique()):
+        sub = df[(df["language"] == lang) & df[metric].notna() & df["tau"].notna()].copy()
+        if len(sub) <= min_n:
+            continue
+        rho, p = spearmanr(sub[metric], sub["tau"])
+        per_lang.append({
+            "language": lang,
+            "rho": float(rho),
+            "p": float(p),
+            "n": int(len(sub)),
+        })
+
+    pooled = df[df[metric].notna() & df["tau"].notna()].copy()
+    pooled_rho, pooled_p = spearmanr(pooled[metric], pooled["tau"]) if len(pooled) > min_n else (np.nan, np.nan)
+
+    if not per_lang:
+        return {
+            "mean_rho": np.nan,
+            "median_rho": np.nan,
+            "weighted_mean_rho": np.nan,
+            "n_languages": 0,
+            "pos_langs": 0,
+            "neg_langs": 0,
+            "null_langs": 0,
+            "sig_pos": 0,
+            "sig_neg": 0,
+            "pooled_rho": float(pooled_rho) if pd.notna(pooled_rho) else np.nan,
+            "pooled_p": float(pooled_p) if pd.notna(pooled_p) else np.nan,
+            "pooled_n": int(len(pooled)),
+        }
+
+    per_lang_df = pd.DataFrame(per_lang)
+    weights = per_lang_df["n"].to_numpy(dtype=float)
+    rhos = per_lang_df["rho"].to_numpy(dtype=float)
+
+    return {
+        "mean_rho": float(np.mean(rhos)),
+        "median_rho": float(np.median(rhos)),
+        "weighted_mean_rho": float(np.average(rhos, weights=weights)),
+        "n_languages": int(len(per_lang_df)),
+        "pos_langs": int((per_lang_df["rho"] > 0).sum()),
+        "neg_langs": int((per_lang_df["rho"] < 0).sum()),
+        "null_langs": int((per_lang_df["rho"] == 0).sum()),
+        "sig_pos": int(((per_lang_df["rho"] > 0) & (per_lang_df["p"] < 0.05)).sum()),
+        "sig_neg": int(((per_lang_df["rho"] < 0) & (per_lang_df["p"] < 0.05)).sum()),
+        "pooled_rho": float(pooled_rho),
+        "pooled_p": float(pooled_p),
+        "pooled_n": int(len(pooled)),
+    }
 def compute_correlations_and_plot():
     if not os.path.exists(OUTPUT_CSV_DATA):
         print(f"{OUTPUT_CSV_DATA} not found. Run compute_all_scores() first.")
@@ -318,22 +382,44 @@ def compute_correlations_and_plot():
     available_metrics = [m for m in METRIC_COLS if m in df.columns and df[m].notna().any()]
     print(f"\nAvailable metrics: {available_metrics}")
 
+    if not available_metrics:
+        print("No available metric columns found in the CSV.")
+        return
+
+    print("\nRows per language:")
+    print(df["language"].value_counts().sort_index())
+
     # --- Per-Language correlations ---
     lang_rows = []
     for metric in available_metrics:
-        for lang in df["language"].unique():
-            sub = df[(df["language"] == lang) & df[metric].notna()]
+        print(f"\n=== {metric} ===")
+
+        pooled_sub = df[df[metric].notna() & df["tau"].notna()].copy()
+        pooled_rho, pooled_p = spearmanr(pooled_sub[metric], pooled_sub["tau"])
+        print("Pooled across all languages:")
+        print(f"rho={pooled_rho:.4f}, p={pooled_p:.4g}, n={len(pooled_sub)}")
+
+        print("Per language:")
+        for lang in sorted(df["language"].dropna().unique()):
+            sub = df[(df["language"] == lang) & df[metric].notna() & df["tau"].notna()].copy()
             if len(sub) > 10:
                 r, p = spearmanr(sub[metric], sub["tau"])
+                print(f"  {lang}: rho={r:.4f}, p={p:.4g}, n={len(sub)}")
                 lang_rows.append({
                     "Metric": METRIC_LABELS.get(metric, metric),
-                    "Language": lang, "Spearman_Rho": r,
-                    "P_Value": p, "Count": len(sub),
+                    "Metric_Key": metric,
+                    "Language": lang,
+                    "Spearman_Rho": float(r),
+                    "P_Value": float(p),
+                    "Count": int(len(sub)),
                 })
+
+        print("Language means:")
+        print(df.groupby("language")[[metric, "tau"]].mean().sort_index())
 
     lang_df = pd.DataFrame(lang_rows)
     lang_df.to_csv(OUTPUT_CSV_LANG, index=False)
-    print(f"Language correlations saved to {OUTPUT_CSV_LANG}")
+    print(f"\nLanguage correlations saved to {OUTPUT_CSV_LANG}")
 
     # --- Per-Category correlations (explode multi-label) ---
     df_copy = df.copy()
@@ -343,86 +429,137 @@ def compute_correlations_and_plot():
 
     cat_rows = []
     for metric in available_metrics:
-        for cat in df_ex["Category"].unique():
-            sub = df_ex[(df_ex["Category"] == cat) & df_ex[metric].notna()]
+        for cat in sorted(df_ex["Category"].unique()):
+            sub = df_ex[(df_ex["Category"] == cat) & df_ex[metric].notna() & df_ex["tau"].notna()].copy()
             if len(sub) > 10:
                 r, p = spearmanr(sub[metric], sub["tau"])
                 cat_rows.append({
                     "Metric": METRIC_LABELS.get(metric, metric),
-                    "Category": cat, "Spearman_Rho": r,
-                    "P_Value": p, "Count": len(sub),
+                    "Metric_Key": metric,
+                    "Category": cat,
+                    "Spearman_Rho": float(r),
+                    "P_Value": float(p),
+                    "Count": int(len(sub)),
                 })
 
     cat_df = pd.DataFrame(cat_rows)
     cat_df.to_csv(OUTPUT_CSV_CAT, index=False)
     print(f"Category correlations saved to {OUTPUT_CSV_CAT}")
 
-    # --- Global Spearman per metric ---
-    global_stats = []
+    # --- Representative summary across languages ---
+    summary_rows = []
     for metric in available_metrics:
-        sub = df[df[metric].notna()]
-        r, p = spearmanr(sub[metric], sub["tau"])
-        global_stats.append({
+        s = summarize_metric_across_languages(df, metric, min_n=10)
+        summary_rows.append({
             "Metric": METRIC_LABELS.get(metric, metric),
-            "Spearman_Rho": r, "P_Value": p,
+            "Metric_Key": metric,
+            "Mean_PerLanguage_Rho": s["mean_rho"],
+            "Median_PerLanguage_Rho": s["median_rho"],
+            "WeightedMean_PerLanguage_Rho": s["weighted_mean_rho"],
+            "Num_Languages": s["n_languages"],
+            "Positive_Languages": s["pos_langs"],
+            "Negative_Languages": s["neg_langs"],
+            "Zero_Languages": s["null_langs"],
+            "Sig_Positive_Languages": s["sig_pos"],
+            "Sig_Negative_Languages": s["sig_neg"],
+            "Pooled_Rho_AllRows": s["pooled_rho"],
+            "Pooled_P_AllRows": s["pooled_p"],
+            "Pooled_N_AllRows": s["pooled_n"],
         })
-    global_df = pd.DataFrame(global_stats).sort_values("Spearman_Rho")
 
-    # --- PLOT: 2-panel (bar chart + heatmap) ---
+    summary_df = pd.DataFrame(summary_rows).sort_values("Mean_PerLanguage_Rho")
+    summary_df.to_csv(OUTPUT_CSV_SUMMARY, index=False)
+    print(f"Representative summary saved to {OUTPUT_CSV_SUMMARY}")
+
+    print("\nRepresentative summary (mean within-language rho):")
+    print(summary_df[[
+        "Metric",
+        "Mean_PerLanguage_Rho",
+        "Median_PerLanguage_Rho",
+        "WeightedMean_PerLanguage_Rho",
+        "Positive_Languages",
+        "Negative_Languages",
+        "Sig_Positive_Languages",
+        "Sig_Negative_Languages",
+        "Pooled_Rho_AllRows",
+    ]].to_string(index=False))
+
+    # --- PLOT: 2-panel (representative summary + per-language heatmap) ---
     print(f"\nGenerating plot to {OUTPUT_PLOT}...")
 
-    fig, axes = plt.subplots(1, 2, figsize=(FULL_WIDTH, FULL_WIDTH * 0.45),
-                             gridspec_kw={"width_ratios": [1, 2]})
+    fig, axes = plt.subplots(
+        1, 2,
+        figsize=(FULL_WIDTH * 1.08, FULL_WIDTH * 0.45),
+        gridspec_kw={"width_ratios": [1.35, 2]}
+    )
 
-    # Panel 1: Global Spearman per metric
+    # Panel 1: mean per-language rho (more representative than pooled rho)
     ax = axes[0]
-    colors = [C_RED if x > 0 else C_BLUE for x in global_df["Spearman_Rho"]]
-    alphas = [1.0 if p < 0.05 else 0.3 for p in global_df["P_Value"]]
-    bars = ax.barh(global_df["Metric"], global_df["Spearman_Rho"], color=colors,
-                   edgecolor='black', linewidth=0.3)
-    
-    for bar, a in zip(bars, alphas):
-        bar.set_alpha(a)
-        
-    for i, (rho, p) in enumerate(zip(global_df["Spearman_Rho"], global_df["P_Value"])):
-        if p < 0.05:
-            # Dynamically align the star based on the bar's direction
-            if rho > 0:
-                ax.text(rho + 0.002, i, "*", va="center", ha="left", fontweight="bold", fontsize=16)
-            else:
-                ax.text(rho - 0.002, i, "*", va="center", ha="right", fontweight="bold", fontsize=16)
-                
+    plot_df = summary_df.copy().reset_index(drop=True)
+
+    # Build cleaner y-axis labels
+    plot_df["Metric_Label"] = [
+        f'{row["Metric"]} ({int(row["Negative_Languages"])}/{int(row["Num_Languages"])} neg)'
+        for _, row in plot_df.iterrows()
+    ]
+
+    colors = [C_RED if x > 0 else C_BLUE for x in plot_df["Mean_PerLanguage_Rho"]]
+
+    ax.barh(
+        plot_df["Metric_Label"],
+        plot_df["Mean_PerLanguage_Rho"],
+        color=colors,
+        edgecolor="black",
+        linewidth=0.3
+    )
+
+    # Overlay pooled rho as black dots
+    ax.scatter(
+        plot_df["Pooled_Rho_AllRows"],
+        plot_df["Metric_Label"],
+        color="black",
+        s=32,
+        zorder=3
+    )
+
     ax.axvline(0, color="black", linewidth=0.5)
-    
-    # Expand x-limits to ensure stars are not cut off or overlapping the spine
-    xmin, xmax = ax.get_xlim()
-    x_range = xmax - xmin
-    ax.set_xlim(xmin - (x_range * 0.15), xmax + (x_range * 0.1))
-    
-    ax.set_title(f'Global: metric vs {LABELS["tau_short"]}')
-    ax.set_xlabel(LABELS['rho'])
+    ax.set_title("Mean within-language ρ")
+    ax.set_xlabel("Spearman ρ")
 
-    # Panel 2: Heatmap of per-language rho by metric
+    # Give extra room on the right for pooled-rho dots
+    vals = np.r_[plot_df["Mean_PerLanguage_Rho"].values,
+                 plot_df["Pooled_Rho_AllRows"].values]
+    xmin = np.nanmin(vals)
+    xmax = np.nanmax(vals)
+    xr = xmax - xmin if xmax > xmin else 0.1
+    ax.set_xlim(xmin - 0.15 * xr, xmax + 0.25 * xr)
+
+    # Panel 2: heatmap of per-language rho by metric
     ax = axes[1]
-    pivot = lang_df.pivot_table(index="Language", columns="Metric",
-                                values="Spearman_Rho")
-    col_order = [METRIC_LABELS.get(m, m) for m in available_metrics
-                 if METRIC_LABELS.get(m, m) in pivot.columns]
-    pivot = pivot[col_order]
-    # Reorder rows to LANG_ORDER
-    present = [l for l in NON_EN_LANGS if l in pivot.index]
-    pivot = pivot.reindex(present)
+    pivot = lang_df.pivot_table(index="Language", columns="Metric", values="Spearman_Rho")
 
-    sns.heatmap(pivot, annot=True, fmt=".3f", cmap=CMAP_DIV, center=0,
-                ax=ax, linewidths=0.5,
-                cbar_kws={"label": LABELS['rho'], "shrink": 0.8})
-    ax.set_title(f'Per-language: metric vs {LABELS["tau_short"]}')
+    col_order = [METRIC_LABELS.get(m, m) for m in available_metrics if METRIC_LABELS.get(m, m) in pivot.columns]
+    pivot = pivot[col_order]
+
+    present = [l for l in NON_EN_LANGS if l in pivot.index]
+    remainder = [l for l in pivot.index if l not in present]
+    pivot = pivot.reindex(present + remainder)
+
+    sns.heatmap(
+        pivot,
+        annot=True,
+        fmt=".3f",
+        cmap=CMAP_DIV,
+        center=0,
+        ax=ax,
+        linewidths=0.5,
+        cbar_kws={"label": LABELS["rho"], "shrink": 0.8}
+    )
+    ax.set_title("Per-language ρ")
     ax.set_ylabel("")
 
     savefig(fig, OUTPUT_PLOT)
     print(f"Plot saved to {OUTPUT_PLOT}")
-
-
 if __name__ == "__main__":
     if not os.path.exists(OUTPUT_CSV_DATA):
         compute_all_scores()

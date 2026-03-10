@@ -73,6 +73,8 @@ OUT_H2          = os.path.join(RESULTS_DIR, "h2_evidence_prompts.csv")
 OUT_H3          = os.path.join(RESULTS_DIR, "h3_evidence_prompts.csv")
 OUT_PLOT        = os.path.join(RESULTS_DIR, "human_tq_vs_tau_plot")
 OUT_COMPARISON  = os.path.join(RESULTS_DIR, "human_vs_automated_comparison.csv")
+GAMMA_FILE      = os.path.join(RESULTS_DIR_input, "gamma_language_params.csv")
+OUT_GAMMA_LANG  = os.path.join(RESULTS_DIR, "human_tq_vs_gamma_language.csv")
 
 # Thresholds for H3 identification
 H3_TOP_N = 50           # pull from top N highest τ prompts
@@ -194,6 +196,8 @@ def load_and_merge():
     print(f"  With safety_rate: {n_with_sr}")
 
     # ── Optionally merge automated metrics ────────────────────────
+        # ── Optionally merge language-level gamma ─────────────────────
+        # ── Optionally merge automated metrics ────────────────────────
     if os.path.exists(AUTOMATED_FILE):
         auto = pd.read_csv(AUTOMATED_FILE)
         auto["id"] = auto["id"].apply(clean_id)
@@ -204,14 +208,30 @@ def load_and_merge():
                 auto_cols.append(c)
         if len(auto_cols) > 2:
             merged = merged.merge(
-                auto[auto_cols], on=["id", "language"], how="left")
+                auto[auto_cols], on=["id", "language"], how="left"
+            )
             print(f"  Automated metrics joined: "
-                  f"{[c for c in auto_cols if c not in ['id','language']]}")
+                  f"{[c for c in auto_cols if c not in ['id', 'language']]}")
 
+    # ── Optionally merge language-level gamma ─────────────────────
+    if os.path.exists(GAMMA_FILE):
+        gamma_df = pd.read_csv(GAMMA_FILE)
+        gamma_df["language"] = gamma_df["language"].astype(str).str.strip()
+
+        for old in ["gamma", "gamma_L", "lang_gamma"]:
+            if old in gamma_df.columns:
+                gamma_df.rename(columns={old: "gamma_L"}, inplace=True)
+                break
+
+        if "gamma_L" in gamma_df.columns:
+            merged = merged.merge(
+                gamma_df[["language", "gamma_L"]].drop_duplicates(),
+                on="language", how="left"
+            )
+            print("  Gamma joined: ['gamma_L']")
     merged.to_csv(OUT_MERGED, index=False)
     print(f"\n  Saved: {OUT_MERGED}")
     return merged
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2: Correlation analysis
@@ -323,6 +343,48 @@ def run_correlations(df):
     summary.to_csv(OUT_SUMMARY, index=False)
     print(f"\n  Saved: {OUT_SUMMARY}")
     return summary
+def run_gamma_analysis(df):
+    """
+    Analyze human translation quality against language-level gamma_L.
+
+    Since gamma_L is constant within each language, this is done at the
+    language level: mean human TQ per language vs gamma_L.
+    """
+    print("\n" + "=" * 60)
+    print("GAMMA_L ANALYSIS (LANGUAGE LEVEL)")
+    print("=" * 60)
+
+    if "gamma_L" not in df.columns or not df["gamma_L"].notna().any():
+        print("  gamma_L not found in merged data — skipping")
+        return None
+
+    lang_df = (
+        df[df["translation_quality"].notna() & df["gamma_L"].notna()]
+        .groupby("language", as_index=False)
+        .agg(
+            mean_translation_quality=("translation_quality", "mean"),
+            median_translation_quality=("translation_quality", "median"),
+            gamma_L=("gamma_L", "first"),
+            n_ratings=("translation_quality", "size"),
+        )
+        .sort_values("language")
+    )
+
+    if len(lang_df) < 3:
+        print("  Not enough languages with gamma_L to analyze")
+        return lang_df
+
+    rho_mean, p_mean = spearmanr(lang_df["mean_translation_quality"], lang_df["gamma_L"])
+    rho_med, p_med = spearmanr(lang_df["median_translation_quality"], lang_df["gamma_L"])
+
+    print(f"  Mean human TQ vs gamma_L:   ρ={rho_mean:+.3f} (p={p_mean:.4f})")
+    print(f"  Median human TQ vs gamma_L: ρ={rho_med:+.3f} (p={p_med:.4f})")
+    print("\n  Per-language values:")
+    print(lang_df.to_string(index=False))
+
+    lang_df.to_csv(OUT_GAMMA_LANG, index=False)
+    print(f"\n  Saved: {OUT_GAMMA_LANG}")
+    return lang_df
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 3: H3 evidence — high τ + good translation
 # ══════════════════════════════════════════════════════════════════════════════
@@ -528,6 +590,7 @@ def main():
 
     df = load_and_merge()
     summary = run_correlations(df)
+    gamma_lang = run_gamma_analysis(df)
     h3, h2 = find_h3_evidence(df)
     compare_human_vs_automated(df)
     plot_analysis(df, summary)

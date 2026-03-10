@@ -49,3 +49,4 @@ model/human_translation_validation/results*
 
 # Overleaf
 safety-irt-overleaf/
+model/human_translation_validation/.DS_Store

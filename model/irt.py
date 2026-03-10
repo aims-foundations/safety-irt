@@ -45,6 +45,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 SAVE_MODEL_FILE = os.path.join(RESULTS_DIR, "irt_params_binary_2pl.pt")
 SAVE_RESULTS_FILE = os.path.join(RESULTS_DIR, "bayesian_irt_results_binary.csv")
 SAVE_PLOT_FILE = os.path.join(RESULTS_DIR, "0_bayesian_irt_plots_binary.png")
+SAVE_GAMMA_FILE = os.path.join(RESULTS_DIR, "gamma_language_params.csv")
 TRAINING_STEPS = 4000
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -232,6 +233,17 @@ def train_and_extract():
 
     mean_beta = samples['beta'].mean(dim=0).detach().cpu().numpy().reshape(-1)
     mean_gamma = samples['gamma'].mean(dim=0).detach().cpu().numpy().reshape(-1)
+    gamma_rows = []
+    for l_name, l_idx in lang_map.items():
+        if l_idx < len(mean_gamma):
+            gamma_rows.append({
+                "language": l_name,
+                "gamma_L": mean_gamma[l_idx],
+            })
+
+    gamma_df = pd.DataFrame(gamma_rows).sort_values("language")
+    gamma_df.to_csv(SAVE_GAMMA_FILE, index=False)
+    print(f"Gamma saved to '{SAVE_GAMMA_FILE}' ({len(gamma_df)} languages)")
     mean_tau = samples['tau'].mean(dim=0).detach().cpu().numpy()
     mean_alpha = samples['alpha'].mean(dim=0).detach().cpu().numpy().reshape(-1)
     if mean_tau.ndim > 2:
@@ -268,6 +280,7 @@ def train_and_extract():
                     'prompt': p_name,
                     'language': l_name,
                     'Base_Difficulty': base_diff,
+                    'gamma_L': mean_gamma[l_idx],
                     'Lang_Difficulty': lang_diff,
                     'Safety_Tax': trans_cost,
                     'Is_Anchor': is_anchor,

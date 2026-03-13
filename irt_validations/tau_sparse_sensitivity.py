@@ -74,10 +74,10 @@ DATA_DIR = snapshot_download(
     repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 INPUT_FILE  = os.path.join(DATA_DIR, "processed_data",
                            "Master_Passes0-9_Dataset.csv")
-ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors_majority.csv")
+ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors_deprecated.csv")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "results_horseshoe_sensitivity2")
+                           "results_horseshoe_sensitivity")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Priors to compare:
@@ -86,6 +86,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 #   "normal"     = Normal(0, 1)     ← no sparsity at all
 PRIOR_CONFIGS = {
     'horseshoe': {'dist': 'studentt', 'df': 1.0},
+    'moderate':  {'dist': 'studentt', 'df': 5.0},
     'normal':    {'dist': 'normal',   'df': None},
 }
 

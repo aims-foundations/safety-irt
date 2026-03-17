@@ -50,3 +50,7 @@ model/human_translation_validation/results*
 # Overleaf
 safety-irt-overleaf/
 model/human_translation_validation/.DS_Store
+*.DS_Store
+model/anchor_validations/results_horseshoe_sensitivity_stratified
+model/human_translation_validation/results*
+model/human_translation_validation/results/

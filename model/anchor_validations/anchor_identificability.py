@@ -60,6 +60,7 @@ PRIOR_COLORS = {'horseshoe': _c2, 'moderate': _c3, 'normal': _c1}
 from scipy.stats import pearsonr, spearmanr
 from tqdm import tqdm
 import os
+import random
 import re
 import warnings
 warnings.filterwarnings('ignore')
@@ -74,10 +75,10 @@ DATA_DIR = snapshot_download(
     repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 INPUT_FILE  = os.path.join(DATA_DIR, "processed_data",
                            "Master_Passes0-9_Dataset.csv")
-ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors_majority.csv")
+ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors.csv")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "results_horseshoe_sensitivity2")
+                           "results_horseshoe_sensitivity_stratified")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Priors to compare:
@@ -200,6 +201,10 @@ def make_model(tau_prior='studentt', tau_df=1.0, anchor_scale=0.01):
 def fit_variant(df, anchor_ids, prior_name, prior_cfg):
     """Fit one model variant and return extracted parameters."""
     pyro.clear_param_store()
+    pyro.set_rng_seed(SEED)
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+    random.seed(SEED)
 
     sc = 'test_taker' if 'test_taker' in df.columns else 'model'
     students  = sorted(df[sc].unique())
@@ -246,9 +251,16 @@ def fit_variant(df, anchor_ids, prior_name, prior_cfg):
     hide = ["obs", "tau", "gamma", "delta", "alpha"]
 
     guide = pyro.infer.autoguide.AutoNormal(
-        pyro.poutine.block(model_fn, hide=hide))
+        pyro.poutine.block(model_fn, hide=hide),
+        init_loc_fn=pyro.infer.autoguide.init_to_feasible())
     optimizer = ClippedAdam({"lr": 0.005, "clip_norm": 10.0})
     svi = SVI(model_fn, guide, optimizer, loss=Trace_ELBO())
+
+    # Re-seed immediately before training to fix RNG state post-setup
+    pyro.set_rng_seed(SEED)
+    torch.manual_seed(SEED)
+    random.seed(SEED)
+    np.random.seed(SEED)
 
     losses = []
     pbar = tqdm(range(MAX_STEPS), desc=f"[{prior_name}]", leave=False)

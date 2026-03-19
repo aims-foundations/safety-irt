@@ -223,7 +223,7 @@ def main():
     ax.set_xticklabels(langs)
     ax.set_ylabel("Mean TQ")
     ax.set_title("Mean TQ by Language")
-    ax.legend()
+    ax.legend(loc="lower right")
 
     plt.tight_layout()
     for ext in [".png", ".pdf"]:

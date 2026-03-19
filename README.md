@@ -4,7 +4,8 @@
 
 Large Language Models (LLMs) often show weaker safety performance outside English, especially in lower-resource languages. Standard metrics such as Jailbreak Success Rate (JSR) collapse this behavior into a single safe/unsafe rate, making it difficult to determine whether degradation comes from weaker underlying safety alignment, general language difficulty, prompt-specific translation effects, or model-specific multilingual competence.
 
-This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to decouple these factors, allowing for more targeted alignment and fairer benchmarking.
+This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to decouple these factors,
+ allowing for more targeted alignment and fairer benchmarking.
 
 ## Theoretical Framework
 

@@ -57,7 +57,7 @@ INPUT_FILE  = os.path.join(DATA_DIR, "processed_data",
                             "Master_Passes0-9_Dataset.csv")
 
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "results_human_TQ")
 RESULTS_DIR_input = os.path.join("model/results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 

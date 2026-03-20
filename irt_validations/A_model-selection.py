@@ -135,7 +135,7 @@ def check_convergence(losses, window, threshold, min_steps):
 
 def model_1pl(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
-              tau_mask=None, gamma_mask=None):
+              tau_mask=None, gamma_mask=None, anchor_mask_tensor=None):
     """1PL: P(safe) = σ(θ_j − (β_i + γ_L + τ_iL))"""
     theta = pyro.sample("theta",
         dist.Normal(torch.zeros(num_students, device=device), 1.0).to_event(1))
@@ -145,10 +145,14 @@ def model_1pl(student_idx, prompt_idx, lang_idx, obs=None,
         dist.Normal(torch.zeros(num_langs, device=device), 1.0).to_event(1))
     gamma = pyro.deterministic("gamma", gamma_raw * gamma_mask)
     tau_scale = pyro.sample("tau_scale",
-        dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
+    dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
+    tau_scale_per = torch.where(
+        anchor_mask_tensor > 0.5,
+        torch.full((num_prompts, num_langs), 0.01, device=device),
+        tau_scale.expand(num_prompts, num_langs))
     tau_raw = pyro.sample("tau_raw",
         dist.StudentT(1.0, torch.zeros(num_prompts, num_langs, device=device),
-                      tau_scale).to_event(2))
+                    tau_scale_per).to_event(2))
     tau = pyro.deterministic("tau", tau_raw * tau_mask)
     delta_raw = pyro.sample("delta_raw",
         dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5).to_event(2))
@@ -164,7 +168,7 @@ def model_1pl(student_idx, prompt_idx, lang_idx, obs=None,
 
 def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
-              tau_mask=None, gamma_mask=None):
+              tau_mask=None, gamma_mask=None, anchor_mask_tensor=None):
     """2PL: P(safe) = σ(α_i · (θ_j − (β_i + γ_L + τ_iL)))"""
     theta = pyro.sample("theta",
         dist.Normal(torch.zeros(num_students, device=device), 1.0).to_event(1))
@@ -196,7 +200,7 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
 
 def model_grm(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
-              tau_mask=None, gamma_mask=None, num_categories=5):
+              tau_mask=None, gamma_mask=None, num_categories=5, anchor_mask_tensor=None):
     """Graded Response Model (Samejima 1969) on Likert 1–5."""
     K = num_categories
     n_thresh = K - 1
@@ -257,7 +261,7 @@ def model_grm(student_idx, prompt_idx, lang_idx, obs=None,
 # ══════════════════════════════════════════════════════════════════════════
 
 def fit_model(model_fn, df_subset, anchor_ids, label="model",
-              learning_rate=None, return_sites=None, extra_kwargs=None):
+              learning_rate=None, return_sites=None, extra_kwargs=None, anchor_mask_tensor = None):
     """
     Fit any IRT model with convergence-based early stopping.
     Handles different parameter names across 1PL, 2PL, and GRM.
@@ -297,13 +301,14 @@ def fit_model(model_fn, df_subset, anchor_ids, label="model",
         en_i = lang_map['en']
         tau_mask[:, en_i] = 0.0
         gamma_mask[en_i] = 0.0
+    anchor_mask_tensor = torch.zeros((num_prompts, num_langs), device=device)
     for pid in prompts:
         if pid in anchor_ids and pid in prompt_map:
-            tau_mask[prompt_map[pid], :] = 0.0
+            anchor_mask_tensor[prompt_map[pid], :] = 1.0
 
     model_kwargs = dict(
         num_students=num_students, num_prompts=num_prompts, num_langs=num_langs,
-        tau_mask=tau_mask, gamma_mask=gamma_mask
+        tau_mask=tau_mask, gamma_mask=gamma_mask, anchor_mask_tensor=anchor_mask_tensor
     )
     if extra_kwargs:
         model_kwargs.update(extra_kwargs)

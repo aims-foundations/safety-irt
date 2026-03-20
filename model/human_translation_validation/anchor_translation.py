@@ -44,7 +44,7 @@ from huggingface_hub import snapshot_download
 DATA_DIR    = snapshot_download(repo_id="MaxZ119/safetyirt",
                                 repo_type="dataset", token=False)
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "results_human_TQ")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 HUMAN_TQ_FILE   = os.path.join(DATA_DIR, "human_translation_validation", "human_translation_quality.csv")
@@ -223,7 +223,7 @@ def main():
     ax.set_xticklabels(langs)
     ax.set_ylabel("Mean TQ")
     ax.set_title("Mean TQ by Language")
-    ax.legend()
+    ax.legend(loc="lower right")
 
     plt.tight_layout()
     for ext in [".png", ".pdf"]:

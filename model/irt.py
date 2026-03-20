@@ -53,7 +53,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
-              tau_mask=None, gamma_mask=None):
+              tau_mask=None, gamma_mask=None, anchor_mask_tensor=None):
     """
     Bayesian 2PL IRT Model (Binary/Bernoulli).
     
@@ -87,13 +87,14 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
 
     # --- Cross-lingual safety gap (sparse) ---
     tau_scale = pyro.sample("tau_scale",
-        dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
-
-    # Heavy-tailed prior for sparsity
+    dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
+    tau_scale_per = torch.where(
+        anchor_mask_tensor > 0.5,
+        torch.full((num_prompts, num_langs), 0.01, device=device),
+        tau_scale.expand(num_prompts, num_langs))
     tau_raw = pyro.sample("tau_raw",
-        dist.StudentT(1.0,
-                      torch.zeros(num_prompts, num_langs, device=device),
-                      tau_scale).to_event(2))
+        dist.StudentT(1.0, torch.zeros(num_prompts, num_langs, device=device),
+                    tau_scale_per).to_event(2))
     tau = pyro.deterministic("tau", tau_raw * tau_mask)
 
     # --- Model-language aptitude ---
@@ -176,9 +177,10 @@ def train_and_extract():
         anchor_ids = set(anchors_df['id'].unique())
 
         count = 0
+        anchor_mask_tensor = torch.zeros((num_prompts, num_langs), device=device)
         for pid in prompts:
-            if pid in anchor_ids:
-                tau_mask[prompt_map[pid], :] = 0.0
+            if pid in anchor_ids and pid in prompt_map:
+                anchor_mask_tensor[prompt_map[pid], :] = 1.0
                 count += 1
 
         print(f"Anchor constraint applied to {count}/{len(anchor_ids)} prompts")
@@ -204,7 +206,8 @@ def train_and_extract():
 
         for step in pbar:
             loss = svi.step(student_idx, prompt_idx, lang_idx, score_obs,
-                            num_students, num_prompts, num_langs, tau_mask, gamma_mask)
+                num_students, num_prompts, num_langs, tau_mask, gamma_mask,
+                anchor_mask_tensor)
             losses.append(loss)
             if step % 100 == 0:
                 pbar.set_description(f"Loss: {loss:.2f}")

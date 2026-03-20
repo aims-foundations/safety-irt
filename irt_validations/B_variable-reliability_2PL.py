@@ -195,7 +195,7 @@ def compute_icc(df_wide):
 
 def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
-              tau_mask=None, gamma_mask=None):
+              tau_mask=None, gamma_mask=None, anchor_mask_tensor=None):
     """2PL: P(safe) = σ(α_i · (θ_j − (β_i + γ_L + τ_iL)))"""
     theta = pyro.sample("theta",
         dist.Normal(torch.zeros(num_students, device=device), 1.0).to_event(1))
@@ -208,10 +208,14 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
         dist.Normal(torch.zeros(num_langs, device=device), 1.0).to_event(1))
     gamma = pyro.deterministic("gamma", gamma_raw * gamma_mask)
     tau_scale = pyro.sample("tau_scale",
-        dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
+    dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
+    tau_scale_per = torch.where(
+        anchor_mask_tensor > 0.5,
+        torch.full((num_prompts, num_langs), 0.01, device=device),
+        tau_scale.expand(num_prompts, num_langs))
     tau_raw = pyro.sample("tau_raw",
         dist.StudentT(1.0, torch.zeros(num_prompts, num_langs, device=device),
-                      tau_scale).to_event(2))
+                    tau_scale_per).to_event(2))
     tau = pyro.deterministic("tau", tau_raw * tau_mask)
     delta_raw = pyro.sample("delta_raw",
         dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5).to_event(2))
@@ -258,9 +262,10 @@ def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
         en_i = lang_map['en']
         tau_mask[:, en_i] = 0.0
         gamma_mask[en_i] = 0.0
+    anchor_mask_tensor = torch.zeros((num_prompts, num_langs), device=device)
     for pid in prompts:
         if pid in anchor_ids and pid in prompt_map:
-            tau_mask[prompt_map[pid], :] = 0.0
+            anchor_mask_tensor[prompt_map[pid], :] = 1.0
 
     # CHANGED 1: use model_2pl, hide alpha from guide
     guide = pyro.infer.autoguide.AutoNormal(
@@ -274,7 +279,7 @@ def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
 
     for step in pbar:
         loss = svi.step(student_idx, prompt_idx, lang_idx, score_obs,
-                        num_students, num_prompts, num_langs, tau_mask, gamma_mask)
+                        num_students, num_prompts, num_langs, tau_mask, gamma_mask, anchor_mask_tensor=None)
         losses.append(loss)
         if step % 200 == 0:
             pbar.set_description(f"[{label}] Loss: {loss:.1f}")
@@ -290,7 +295,7 @@ def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
     predictive = Predictive(model_2pl, guide=guide, num_samples=N_POSTERIOR_SAMPLES,
                             return_sites=["theta", "beta", "gamma", "tau", "delta", "alpha"])
     samples = predictive(student_idx, prompt_idx, lang_idx, None,
-                         num_students, num_prompts, num_langs, tau_mask, gamma_mask)
+                         num_students, num_prompts, num_langs, tau_mask, gamma_mask, anchor_mask_tensor=None)
 
     theta_mean = samples['theta'].detach().cpu().numpy().mean(axis=0).reshape(num_students).astype(np.float64)
     theta_std = samples['theta'].detach().cpu().numpy().std(axis=0).reshape(num_students).astype(np.float64)

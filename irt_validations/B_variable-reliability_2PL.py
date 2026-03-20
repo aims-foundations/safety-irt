@@ -279,7 +279,7 @@ def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
 
     for step in pbar:
         loss = svi.step(student_idx, prompt_idx, lang_idx, score_obs,
-                        num_students, num_prompts, num_langs, tau_mask, gamma_mask, anchor_mask_tensor=None)
+                        num_students, num_prompts, num_langs, tau_mask, gamma_mask, anchor_mask_tensor)
         losses.append(loss)
         if step % 200 == 0:
             pbar.set_description(f"[{label}] Loss: {loss:.1f}")
@@ -295,7 +295,7 @@ def fit_irt(df_subset, anchor_ids, label="full", cache_key=None):
     predictive = Predictive(model_2pl, guide=guide, num_samples=N_POSTERIOR_SAMPLES,
                             return_sites=["theta", "beta", "gamma", "tau", "delta", "alpha"])
     samples = predictive(student_idx, prompt_idx, lang_idx, None,
-                         num_students, num_prompts, num_langs, tau_mask, gamma_mask, anchor_mask_tensor=None)
+                         num_students, num_prompts, num_langs, tau_mask, gamma_mask, anchor_mask_tensor)
 
     theta_mean = samples['theta'].detach().cpu().numpy().mean(axis=0).reshape(num_students).astype(np.float64)
     theta_std = samples['theta'].detach().cpu().numpy().std(axis=0).reshape(num_students).astype(np.float64)

@@ -54,6 +54,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
               tau_mask=None, gamma_mask=None, anchor_mask_tensor=None):
+    if anchor_mask_tensor is None:
+      anchor_mask_tensor = torch.zeros(num_prompts, num_langs, device=device)
     """
     Bayesian 2PL IRT Model (Binary/Bernoulli).
     
@@ -232,7 +234,8 @@ def train_and_extract():
     predictive = Predictive(model_2pl, guide=guide, num_samples=500,
                             return_sites=["beta", "gamma", "tau", "alpha", "theta", "delta"])
     samples = predictive(student_idx, prompt_idx, lang_idx, None,
-                         num_students, num_prompts, num_langs, tau_mask, gamma_mask)
+                     num_students, num_prompts, num_langs, tau_mask, gamma_mask,
+                     anchor_mask_tensor)
 
     mean_beta = samples['beta'].mean(dim=0).detach().cpu().numpy().reshape(-1)
     mean_gamma = samples['gamma'].mean(dim=0).detach().cpu().numpy().reshape(-1)

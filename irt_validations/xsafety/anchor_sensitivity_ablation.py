@@ -68,8 +68,8 @@ except ImportError:
 
 # ── paths ────────────────────────────────────────────────────────────────────
 DATA_DIR    = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
-INPUT_FILE  = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
-ANCHOR_FILE = os.path.join(DATA_DIR, "safety-data", "anchors", "xsafety_anchors.csv")
+INPUT_FILE  = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
+ANCHOR_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_anchors.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "results_anchor_sensitivity")
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -193,8 +193,9 @@ def build_anchor_sets(df, rng=None):
     random_matched_ids = set(all_arr[perm[:n_lords]])
 
     # Category-balanced: stratified sample by prompt category
-    # XSafety: 'category' is a single string (no list parsing needed)
-    cat_col = 'category' if 'category' in df.columns else \
+    # XSafety: 'tags' column holds a single string (no list parsing needed)
+    cat_col = 'tags' if 'tags' in df.columns else \
+              'category' if 'category' in df.columns else \
               next((c for c in df.columns if 'category' in c.lower()), None)
     if cat_col:
         tag_series = df.drop_duplicates('id').set_index('id')[cat_col].astype(str)

@@ -56,13 +56,11 @@ except ImportError:
 # ── paths ────────────────────────────────────────────────────────────────────
 DATA_DIR    = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset",
                                  token=False)
-INPUT_FILE  = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
+INPUT_FILE  = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 
-_MODEL_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "..", "..", "model", "xsafety", "results")
-IRT_CSV     = os.path.join(_MODEL_DIR, "bayesian_irt_results_binary.csv")
-IRT_PT      = os.path.join(_MODEL_DIR, "irt_params_binary_2pl.pt")
-ANCHOR_FILE = os.path.join(DATA_DIR, "safety-data", "anchors", "xsafety_anchors.csv")
+IRT_CSV     = os.path.join(DATA_DIR, "xsafety", "xsafety_results", "bayesian_irt_results_binary.csv")
+IRT_PT      = os.path.join(DATA_DIR, "xsafety", "xsafety_results", "irt_params_binary_2pl.pt")
+ANCHOR_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_anchors.csv")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "results_glmm_baseline")

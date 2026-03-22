@@ -52,7 +52,7 @@ except Exception as e:
     print(f"Error downloading snapshot: {e}")
     DATA_DIR = "."
 
-INPUT_FILE = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -111,9 +111,9 @@ def load_and_aggregate():
     raw_df["id"] = raw_df["id"].apply(clean_id)
     raw_df["is_safe"] = (raw_df["judge_score"] >= 4).astype(int)
 
-    # XSafety: category is a single string per row, no need for tags parsing
-    cat_df = raw_df[["id", "category"]].drop_duplicates(subset=["id"])
-    cat_lookup = cat_df.set_index("id")["category"].to_dict()
+    # XSafety: 'tags' column holds a single string per row, no parsing needed
+    cat_df = raw_df[["id", "tags"]].drop_duplicates(subset=["id"])
+    cat_lookup = cat_df.set_index("id")["tags"].to_dict()
     print(f"  {len(cat_lookup)} category mappings loaded.")
 
     agg_df = raw_df.groupby(["id", "language"], as_index=False).agg(

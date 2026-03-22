@@ -22,11 +22,9 @@ from huggingface_hub import snapshot_download
 DATA_DIR = snapshot_download(
     repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 
-INPUT_FILE = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 
-MODEL_RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "..", "..", "model", "xsafety", "results",
-                             "bayesian_irt_results_binary.csv")
+MODEL_RESULTS = os.path.join(DATA_DIR, "xsafety", "xsafety_results", "bayesian_irt_results_binary.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "results_qualitative_inspection")
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -126,7 +124,7 @@ def load_master_data():
     if response_col is None:
         for col in df.columns:
             if df[col].dtype == object and col not in [
-                    'id', 'language', 'test_taker', 'model', 'category',
+                    'id', 'language', 'test_taker', 'model', 'category', 'tags',
                     'prompt', 'prompt_en']:
                 if df[col].dropna().head(5).str.len().mean() > 50:
                     response_col = col
@@ -188,7 +186,7 @@ def extract_responses(master_df, top_pairs, response_col, prompt_col, tt_col):
                 'judge_score_lang': row.get('judge_score', ''),
                 'response_en':      en_text,
                 'judge_score_en':   en_judge,
-                'category':         row.get('category', ''),
+                'category':         row.get('tags', row.get('category', '')),
             })
 
     return pd.DataFrame(records)

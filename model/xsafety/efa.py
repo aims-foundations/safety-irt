@@ -30,7 +30,7 @@ from huggingface_hub import snapshot_download
 apply_style()
 
 DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
-INPUT_FILE = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 OUTPUT_SCREE_PLOT = os.path.join(RESULTS_DIR, "efa_scree_plot_likert.png")
@@ -39,7 +39,7 @@ OUTPUT_LOADINGS   = os.path.join(RESULTS_DIR, "efa_factor_loadings_likert.csv")
 COL_MODEL = "test_taker"
 COL_LANG  = "language"
 COL_SCORE = "judge_score"
-COL_TAGS  = "category"   # XSafety uses 'category' (single string, not list)
+COL_TAGS  = "tags"   # XSafety uses 'tags' column (single string values)
 
 
 def run_efa():

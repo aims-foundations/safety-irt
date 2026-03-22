@@ -12,11 +12,9 @@ from huggingface_hub import snapshot_download
 
 DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 
-INPUT_FILE = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 
-IRT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                   "..", "..", "model", "xsafety", "results",
-                   "bayesian_irt_results_binary.csv")
+IRT = os.path.join(DATA_DIR, "xsafety", "xsafety_results", "bayesian_irt_results_binary.csv")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "results_qualitative_inspection")
@@ -75,9 +73,9 @@ trans_rows = master.drop_duplicates(['id', 'language'])[
     ['id', 'language', 'prompt']].copy()
 trans_rows = trans_rows.rename(columns={'prompt': 'prompt_translated'})
 
-# Category is directly in XSafety dataset
-if 'category' in master.columns:
-    cats = master.drop_duplicates('id')[['id', 'category']]
+# Category is in XSafety dataset as 'tags' column
+if 'tags' in master.columns:
+    cats = master.drop_duplicates('id')[['id', 'tags']].rename(columns={'tags': 'category'})
     en_rows = en_rows.merge(cats, on='id', how='left')
 
 top = top.merge(en_rows, on='id', how='left')

@@ -56,8 +56,8 @@ except ImportError:
 DATA_DIR    = snapshot_download(
     repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False
 )
-INPUT_FILE  = os.path.join(DATA_DIR, "safety-data", "xsafety", "xsafety_pass_graded.csv")
-ANCHOR_FILE = os.path.join(DATA_DIR, "safety-data", "anchors", "xsafety_anchors.csv")
+INPUT_FILE  = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
+ANCHOR_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_anchors.csv")
 
 EXP_A_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "results_experiment_A")

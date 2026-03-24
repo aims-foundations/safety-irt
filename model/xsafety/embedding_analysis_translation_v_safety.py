@@ -349,7 +349,8 @@ def compute_correlations_and_plot():
     # --- PLOT ---
     print(f"\nGenerating plot to {OUTPUT_PLOT}...")
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7), gridspec_kw={"width_ratios": [1, 2]})
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7), gridspec_kw={"width_ratios": [1, 2]},
+                             layout="constrained")
 
     # Panel 1: Global Spearman per metric with CI whiskers
     colors = [C_RED if x > 0 else C_BLUE for x in global_df["Spearman_Rho"]]
@@ -373,7 +374,6 @@ def compute_correlations_and_plot():
     axes[1].set_title("Per-Language: Metric vs Safety Rate (XSafety)", fontsize=14, fontweight="bold")
     axes[1].set_ylabel("")
 
-    plt.tight_layout()
     savefig(fig, OUTPUT_PLOT)
     print(f"Plot saved to {OUTPUT_PLOT}")
 

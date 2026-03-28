@@ -66,8 +66,8 @@ safety-irt/
 │   ├── B_variable-reliability_2PL.py  # Experiment B (2PL): split-half, ICC, τ stability
 │   ├── D_predictive-validation_2PL.py # Experiment D (2PL): LOFO, LOLO, CV; τ ablation
 │   ├── anchor_sensitivity_ablation.py # Runs the same model under six anchor conditions and compares θ/γ/τ stability
-|   ├── english_worst_response_length.py # 22 test-takers whose HIGHEST JSR is in English, compares response length (tokens) across languages
-|   ├── english_worst_response_pairs.py # Finds the test-takers whose highest JSR is in English, pulls up to 100 prompt pairs
+|   ├── english_worst_response_length.py # 22 model configurations whose HIGHEST JSR is in English, compares response length (tokens) across languages
+|   ├── english_worst_response_pairs.py # Finds the model configurations whose highest JSR is in English, pulls up to 100 prompt pairs
 │   ├── grok_incomprehension.py # For every Grok response in Javanese, Swahili, Bengali, and English across all 10 passes, uses GPT-4.1-mini
 │   ├── h1_irt_analysis.py # H1 Direct Test: Isolating δ_jL (Model-Language Aptitude)
 │   ├── high_tau_categories.py # Count harm categories among top 100 highest positive-τ prompts.
@@ -120,7 +120,7 @@ python model/efa.py    # data auto-downloaded from HuggingFace
 ### Data Collection
 
 ```bash
-# Collect test-taker responses (set API key env vars first)
+# Collect model configuration responses (set API key env vars first)
 python -m data_curation.test_takers --config gpt --dry-run   # preview
 python -m data_curation.test_takers --config gpt             # run
 ```
@@ -153,7 +153,7 @@ python -m data_curation.variant_ablation doppelgangers
 
 ## Methodology
 
-**Test-takers**: 61 model variants across 5 families (GPT, Claude, Gemini, Grok, DeepSeek)
+**Model Configurations**: 61 model variants across 5 families (GPT, Claude, Gemini, Grok, DeepSeek)
 - **Passes**: 10 generations per configuration (Pass@1 explains 24% of variance; Pass@10 reaches 73%)
 - **Total**: ~1.9M graded responses
 

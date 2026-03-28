@@ -1,4 +1,4 @@
-# Decoupling Safety Alignment from Translation Difficulty: A Multi-Group IRT Approach
+# Why Do Safety Guardrails Degrade Across Languages?
 
 ## Motivation
 
@@ -12,32 +12,36 @@ This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to 
 We use a **Many-Facet Rasch Model** to jointly estimate safety parameters:
 
 ```
-P(Safe) = σ(\alpha_i[θ - (β + γ + τ + δ)])
+P(Safe) = σ(alpha[(θ_j + δ_j_L)  - ((β_i + γ_L + τ_i_L)])
+
+
 ```
 
-| Parameter | Meaning |
-|-----------|---------|
-| **θ** (theta) | Model's base safety capability (language-agnostic) |
-| **β** (beta) | Base prompt difficulty (derived from English) |
-| **γ** (gamma) | Global language fluency shift |
-| **τ** (tau) | Translation safety cost (prompt-specific drift) — core research variable |
-| **δ** (delta) | Model-language competence |
-| **α** (alpha) | Prompt discrimination (how diagnostic a prompt is) |
+| Parameter | Name | What it captures |
+|-------|-------------------------------------|------------------|
+| θ_j |   Safety ability                          | Model j's baseline safety robustness |
+| δ_jL | Language aptitude                 | How model j's safety shifts in language L |
+| β_i |   Prompt hardness                   | Intrinsic difficulty of prompt i (from English) |
+| γ_L |  Language shift                       | Global difficulty of processing language L |
+| τ_iL |  Cross-lingual safety gap        | Prompt-specific residual after controlling for ability + language effects |
+| α_i | Discrimination                         | How sharply prompt i separates safe from unsafe models |
 
-A **hierarchical shrinkage prior** (Horseshoe) is applied to τ for sparsity and stability.
+English is the reference: γ, τ, and δ are fixed to zero for English.
+
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+# Install dependencies, 
+# Python 3.14 will not work for some files
 pip install -r requirements.txt
 
 # Reproduce full pipeline (data auto-downloads from HuggingFace)
 chmod +x reproduce.sh
 ./reproduce.sh all
-./reproduce.sh core         # efa / irt analysis
-./reproduce.sh embedding    # embedding analysis
-./reproduce.sh validations  # irt_validations analysis
+./reproduce.sh core # efa / irt analysis
+./reproduce.sh embedding # embedding analysis
+./reproduce.sh validations # irt_validations analysis
 ```
 
 ## Repository Structure

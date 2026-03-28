@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source venv_safety_irt/bin/activate
 
+python model/anchor_validations/anchor_identificability.py
 python irt_validations/A_model-selection.py
 python irt_validations/anchor_sensitivity_ablation.py
 python irt_validations/B_variable-reliability_2PL.py

@@ -140,7 +140,7 @@ python -m data_curation.variant_ablation doppelgangers
 
 ## Methodology
 
-**Test-takers**: 66 model variants across 5 families (GPT, Claude, Gemini, Grok, DeepSeek)
+**Test-takers**: 61 model variants across 5 families (GPT, Claude, Gemini, Grok, DeepSeek)
 - **Passes**: 10 generations per configuration (Pass@1 explains 24% of variance; Pass@10 reaches 73%)
 - **Total**: ~1.9M graded responses
 

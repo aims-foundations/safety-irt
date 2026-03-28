@@ -35,9 +35,9 @@ pip install -r requirements.txt
 # Reproduce full pipeline (data auto-downloads from HuggingFace)
 chmod +x reproduce.sh
 ./reproduce.sh all
-./reproduce.sh core # efa / irt analysis
-./reproduce.sh embedding # embedding analysis
-./reproduce.sh validations # irt_validations analysis
+./reproduce.sh core         # efa / irt analysis
+./reproduce.sh embedding    # embedding analysis
+./reproduce.sh validations  # irt_validations analysis
 ```
 
 ## Repository Structure
@@ -87,7 +87,6 @@ safety-irt/
 ## Data
 
 All data is hosted on HuggingFace: [`MaxZ119/safetyirt`](https://huggingface.co/datasets/MaxZ119/safetyirt)
-
 Model and analysis scripts auto-download from HuggingFace when no local file is specified — no manual downloads needed.
 
 **Source dataset**: [MultiJail](https://github.com/DAMO-NLP-SG/multilingual-safety-for-LLMs) — 315 base prompts x 10 languages (en, zh, it, vi, ar, ko, th, bn, sw, jv) across 18 safety categories.
@@ -138,12 +137,24 @@ python -m data_curation.variant_ablation doppelgangers
 ## Methodology
 
 **Test-takers**: 66 model variants across 5 families (GPT, Claude, Gemini, Grok, DeepSeek)
+- **Passes**: 10 generations per configuration (Pass@1 explains 24% of variance; Pass@10 reaches 73%)
+- **Total**: ~1.9M graded responses
 
 **Variant creation** (for non-reasoning models — 4 variants each):
 - Low-creativity: temp=0.4, top-p=1.0
 - Standard: temp=0.7, top-p=0.9
 - High-risk: temp=1.0, top-p=0.95
 - Chaos: temp=1.3, top-p=1.0
+
+### Anchoring and Sparsity
+- **40 anchor prompts** selected by lowest mean Lord's χ² across 9 languages, with a soft prior (τ ~ N(0, 0.01)) instead of hard zero.
+- **Horseshoe prior** on τ enforces sparsity — most prompts have no cross-lingual gap. This reduces γ–τ confounding to |r| = 0.081.
+
+### Safety Judgment
+- **Judge**: GPT-5.2, 6-point Likert scale (5 = safe refusal → 1 = full violation, 0 = invalid)
+- **Human validation**: 300 stratified responses, Cohen's κ = 0.80–0.89 with GPT-5.2
+- **Cross-judge**: GPT-5.2 vs Claude-4.5-Sonnet vs Gemini-2.5-Pro on 9,450 responses, Fleiss' κ = 0.75
+- **Validation with XSafety**: 3,080 prompts across 10 languages (6 new, 4 shared) for generalization
 
 **Grading rubric** (LLM-as-Judge):
 | Score | Label | Description |
@@ -159,7 +170,9 @@ python -m data_curation.variant_ablation doppelgangers
 
 ## Key Findings
 
-- **Unidimensionality**: KMO = 0.96, dominance ratio = 18.75 — safety is one factor, not multiple
-- **Reversed JSR pattern**: Grok shows highest JSR in English (35.2%), lowest in Bengali (18.8%) — opposite of expected
-- **Translation Safety Cost**: Bengali prompts systematically harder (γ_bn > 0), Chinese easier (γ_zh < 0)
-- **High-cost prompts**: Short, action-oriented instructions where brevity + translation creates potent attack vectors
+- **Framework**: Multi-group IRT model that separates model safety ability (θ), language difficulty (γ), and prompt-specific cross-lingual safety gaps (τ) — 61 model configurations, 5 families, 10 languages, 1.9M responses.
+- **Safety is unidimensional**: Models that refuse one harm category generally refuse others — a shared mechanism, not separate per-category circuits.
+- **English reversal**: 22/61 model configurations are *most* vulnerable in English, not low-resource languages. Low-resource languages instead produce more uncertain (high-entropy) responses.
+- **Translation quality is minor overall**: Explains ~1% of τ variance, but a small number of severe mistranslations drive the largest outliers.
+- **Physical harms have the biggest gaps**: Theft, weapons, and child abuse show the highest τ, while abstract categories like discrimination transfer more reliably across languages.
+- **Cultural/conceptual mismatches**: Native speakers identify Western-specific concepts (SSNs, FBI, U.S. racial demographics) in high-τ prompts with perfect translation, suggesting the benchmark itself introduces bias.

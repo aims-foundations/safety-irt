@@ -17,4 +17,5 @@ python irt_validations/jsr_difficulty.py
 python irt_validations/jsr_irt_analysis.py
 python irt_validations/jsr_irt_ordering.py
 python irt_validations/tau_judge_artifact.py
+python irt_validations/tau_multidimensionality.py
 python irt_validations/temperature_jsr_by_language.py

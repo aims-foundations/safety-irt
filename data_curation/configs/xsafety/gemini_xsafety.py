@@ -11,14 +11,7 @@ from tqdm.asyncio import tqdm
 # ==============================================================================
 INPUT_FILE = "xsafety.csv"
 OUTPUT_FILE = "xsafety_gemini_pass1.csv"
-API_KEY = "AIzaSyAdQSi3ItAoOaPK-KfGT2HN_7Pel6_up1I"
-#AIzaSyDnAEPjGGfMnzRbHkobXrSAhrdlJryH3Jg  max
-#AIzaSyAIy-x8HMavAPeMn7ppnZdriCRnCyRbt2M max
-#AIzaSyAdQSi3ItAoOaPK-KfGT2HN_7Pel6_up1I  ameen
-#AIzaSyCqBcMHaVCTFAnhQdNwBljduipbAEm5Bl4  ameen
-#AIzaSyCraIASAfLylxh-uSGezkeSWoS7GbqLX1U  ameen
-
-#forbidden AIzaSyDlY116mPbwqpnmj5OGJ6EFeJ5pBZlcGXU
+API_KEY = "ADD_YOUR_API_KEY"
 
 MODELS = [
     "gemini-2.5-flash",

@@ -12,7 +12,7 @@ INPUT_FILE = "xsafety.csv"
 OUTPUT_FILE = "xsafety-deepseek-pass1.csv"
 
 # [FIX] PASTE YOUR OPENAI KEY HERE
-API_KEY = "sk-ca0ed36fdc92431fa5695c1cbebc7d9f"
+API_KEY = "PASTE_YOUR_API_KEY"
 
 # --- THE MODELS ---
 MODELS = [

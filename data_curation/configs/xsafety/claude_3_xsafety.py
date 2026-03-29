@@ -22,7 +22,7 @@ CONFIG = {
 
 
 def create_client():
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "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")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("Set ANTHROPIC_API_KEY environment variable")
     return AsyncAnthropic(api_key=api_key)

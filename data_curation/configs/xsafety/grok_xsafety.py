@@ -26,7 +26,7 @@ CONFIG = {
 
 
 def create_client():
-    api_key = os.environ.get("XAI_API_KEY", "xai-C2KWz5qU6fn2YqtJ4McxYE0DbmydSPAF1dLasDYioe8ILDqrAWqNKHlugkVDPv5VtLZHYKQATzHdJWly")
+    api_key = os.environ.get("XAI_API_KEY", "ADD_YOUR_API_KEY")
     if not api_key:
         raise ValueError("Set XAI_API_KEY environment variable")
     return AsyncOpenAI(api_key=api_key, base_url="https://api.x.ai/v1")

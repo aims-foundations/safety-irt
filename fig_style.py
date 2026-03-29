@@ -13,7 +13,6 @@ Then:
     fig, ax = make_fig(n_panels=3)         # 3 panels on 1 row, correct width
     ax[0].set_xlabel(LABELS['tau'])        # Greek-letter label
 
-Venue: COLM 2026 (single-column, full-page-width figures).
 """
 
 import matplotlib

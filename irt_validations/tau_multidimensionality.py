@@ -59,10 +59,9 @@ from huggingface_hub import snapshot_download
 
 DATA_DIR   = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
 INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
-IRT_CSV    = os.path.join(DATA_DIR, "resultsmar19", "results",
-                           "bayesian_irt_results_binary.csv")
-IRT_PT     = os.path.join(DATA_DIR, "resultsmar19", "results",
-                           "irt_params_binary_2pl.pt")
+MODEL_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model", "results")
+IRT_CSV    = os.path.join(MODEL_DIR, "bayesian_irt_results_binary.csv")
+IRT_PT     = os.path.join(MODEL_DIR, "irt_params_binary_2pl.pt")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)

@@ -53,7 +53,7 @@ INPUT_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-IRT_RESULTS_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_results", "bayesian_irt_results_binary.csv")
+IRT_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "xsafety_results", "bayesian_irt_results_binary.csv")
 
 OUTPUT_CSV_DATA    = os.path.join(RESULTS_DIR, "multimetric_translation_v_DIF.csv")
 OUTPUT_CSV_LANG    = os.path.join(RESULTS_DIR, "multimetric_translation_v_DIF_Lang.csv")

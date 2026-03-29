@@ -49,7 +49,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 HUMAN_TQ_FILE   = os.path.join(DATA_DIR, "human_translation_validation", "human_translation_quality.csv")
 ANCHOR_FILE   = os.path.join(DATA_DIR, "anchors", "anchors.csv")
-IRT_RESULTS   = os.path.join(RESULTS_DIR, "bayesian_irt_results_binary.csv")
+IRT_RESULTS   = os.path.join(SCRIPT_DIR, "..", "results", "bayesian_irt_results_binary.csv")
 
 OUT_REPORT  = os.path.join(RESULTS_DIR, "anchor_tq_report.csv")
 OUT_SUMMARY = os.path.join(RESULTS_DIR, "anchor_tq_summary.csv")

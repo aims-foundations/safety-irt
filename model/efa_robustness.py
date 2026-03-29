@@ -2,8 +2,8 @@
 """
 Unidimensionality Robustness: Q3 residuals + Kendall's W
 =========================================================
-Addresses reviewer concern that EFA picks up "Refusal Bias" rather than
-genuine unidimensional safety structure (Sanmi Koyejo critique).
+Addresses concern that EFA picks up "Refusal Bias" rather than
+genuine unidimensional safety structure.
 
 Analysis 1: Yen's Q3 — residual correlations after removing the FULL IRT model.
   E[X] = σ(α_i × ((θ_j + δ_jL) − (β_i + γ_L + τ_iL)))

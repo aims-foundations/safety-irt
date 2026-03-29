@@ -103,7 +103,7 @@ safety-irt/
 
 ## Data
 
-All data is hosted on HuggingFace: [`MaxZ119/safetyirt`](https://huggingface.co/datasets/MaxZ119/safetyirt)
+All data is hosted on HuggingFace: [`safety-irt/safety-data`](https://huggingface.co/datasets/safety-irt/safety-data)
 Model and analysis scripts auto-download from HuggingFace when no local file is specified — no manual downloads needed.
 
 **Source dataset**: [MultiJail](https://github.com/DAMO-NLP-SG/multilingual-safety-for-LLMs) — 315 base prompts x 10 languages (en, zh, it, vi, ar, ko, th, bn, sw, jv) across 18 safety categories.

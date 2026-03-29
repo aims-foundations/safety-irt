@@ -41,7 +41,7 @@ except ImportError:
 from huggingface_hub import snapshot_download
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DATA_DIR    = snapshot_download(repo_id="MaxZ119/safetyirt",
+DATA_DIR    = snapshot_download(repo_id="safety-irt/safety-data",
                                 repo_type="dataset", token=False)
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(SCRIPT_DIR, "results_human_TQ")

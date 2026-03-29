@@ -5,7 +5,7 @@ import pandas as pd
 import os
 from huggingface_hub import snapshot_download
 
-DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
+DATA_DIR = snapshot_download(repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
 MASTER = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
 MULTIJAIL = os.path.join(DATA_DIR, "multijail.csv")
 IRT = os.path.join(os.path.dirname(os.path.abspath(__file__)),

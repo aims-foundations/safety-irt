@@ -24,7 +24,7 @@ from huggingface_hub import snapshot_download
 # ─── Data ────────────────────────────────────────────────────────────────────
 
 DATA_DIR = snapshot_download(
-    repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False
+    repo_id="safety-irt/safety-data", repo_type="dataset", token=False
 )
 INPUT_FILE = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
 

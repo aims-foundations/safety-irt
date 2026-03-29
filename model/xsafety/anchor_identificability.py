@@ -73,7 +73,7 @@ from huggingface_hub import snapshot_download
 # ══════════════════════════════════════════════════════════════════════════
 
 DATA_DIR = snapshot_download(
-    repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
+    repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
 
 INPUT_FILE  = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 

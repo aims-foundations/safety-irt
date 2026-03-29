@@ -39,7 +39,7 @@ torch.backends.cudnn.benchmark = False
 # --- CONFIGURATION ---
 try:
     print("Locating dataset snapshot...")
-    DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
+    DATA_DIR = snapshot_download(repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
 except Exception as e:
     print(f"Error downloading snapshot: {e}")
     DATA_DIR = "."

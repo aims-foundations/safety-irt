@@ -38,7 +38,7 @@ SEED = 42
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
-DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
+DATA_DIR = snapshot_download(repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
 INPUT_FILE  = os.path.join(DATA_DIR, "xsafety", "xsafety_pass_graded.csv")
 ANCHOR_FILE = os.path.join(DATA_DIR, "xsafety", "xsafety_anchors.csv")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "xsafety_results")

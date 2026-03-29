@@ -22,7 +22,7 @@ from fig_style import *
 
 apply_style()
 
-REPO_ID  = "MaxZ119/safetyirt"
+REPO_ID  = "safety-irt/safety-data"
 FILENAME = "xsafety/xsafety_pass_graded.csv"
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results", "response_matrices")
 RAW_RED  = "#FF0000"

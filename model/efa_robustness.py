@@ -47,7 +47,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA PATHS (same source as irt.py)
 # ═══════════════════════════════════════════════════════════════════════════════
-DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
+DATA_DIR = snapshot_download(repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
 MASTER_CSV = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
 # IRT outputs live in model/results/ relative to irt.py
 IRT_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "model", "results")

@@ -168,13 +168,13 @@ def main():
 
 if __name__ == "__main__":
     main()
-"""Download xsafety.csv from the MaxZ119/safetyirt HuggingFace dataset repo."""
+"""Download xsafety.csv from the safety-irt/safety-data HuggingFace dataset repo."""
 
 import os
 import shutil
 from huggingface_hub import hf_hub_download
 
-REPO_ID = "MaxZ119/safetyirt"
+REPO_ID = "safety-irt/safety-data"
 FILENAME = "xsafety.csv"
 OUTPUT_FILE = "xsafety.csv"
 

@@ -13,7 +13,7 @@ from fig_style import *
 apply_style()
 
 # --- CONFIGURATION ---
-REPO_ID = "MaxZ119/safetyirt"
+REPO_ID = "safety-irt/safety-data"
 FILENAME = "processed_data/Master_Passes0-9_Dataset.csv"
 RESULTS_DIR = "model/results/response_matrices_3150"
 RAW_RED  = "#FF0000"  # pure red

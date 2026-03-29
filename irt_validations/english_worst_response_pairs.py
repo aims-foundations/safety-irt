@@ -34,7 +34,7 @@ print(f"  Languages: {', '.join([f'{k.upper()} ({v})' for k, v in TARGET_LANGS.i
 print(f"  Target per language: {TARGET_PER_LANG}")
 print("=" * 60)
 
-DATA_DIR = snapshot_download(repo_id="MaxZ119/safetyirt", repo_type="dataset", token=False)
+DATA_DIR = snapshot_download(repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
 master = pd.read_csv(os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv"))
 
 master["judge_score"] = pd.to_numeric(master["judge_score"], errors="coerce")

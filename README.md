@@ -47,57 +47,58 @@ chmod +x reproduce.sh
 ## Repository Structure
 ```
 safety-irt/
-├── model/                     # IRT + EFA model fitting
-│   ├── xsafety/               # Model for XSafety dataset
-│   ├── irt.py                 # 2PL Binary IRT with anchoring constraints (Pyro SVI)
-│   ├── efa.py                 # Exploratory Factor Analysis + JSR heatmap
-│   ├── anchors.py             # Anchor prompt selection utilities using Iterative Purification
-│   └── results/               # Saved model params, plots, CSVs
-|   └── deprecated/               # Old, to be removed
-|   └── anchor_validations/               # Anchor selection validation using MTT + comparision files
-|   └── human_translation_validation/        # Human labeled translation quality verus CSG + Safety
-|   ├── embedding_analysis_translation_v_CSG.py   #Translation quality verus cross-lingual safety gap
-|   ├── embedding_analysis_translation_v_safety.py   #Translation quality verus safety
-|   ├── response_matrix.py             # Creates response_matrices images
+├── model/                                          # IRT + EFA model fitting
+│   ├── xsafety/                                    # Model for XSafety dataset
+│   ├── irt.py                                      # 2PL Binary IRT with anchoring constraints (Pyro SVI)
+│   ├── efa.py                                      # Exploratory Factor Analysis + JSR heatmap
+│   ├── anchors.py                                  # Stratified-variance + agreement-rank anchor selection
+│   ├── fig_style.py                                # Shared figure styling (colors, tueplots config)
+│   ├── results/                                    # Saved model params, plots, CSVs
+│   ├── deprecated/                                 # Old anchor selection method, to be removed
+│   ├── anchor_validations/                         # Anchor selection validation using MTT + comparison files
+│   ├── human_translation_validation/               # Human labeled translation quality vs CSG + Safety
+│   ├── embedding_analysis_translation_v_CSG.py     # Translation quality vs cross-lingual safety gap
+│   ├── embedding_analysis_translation_v_safety.py  # Translation quality vs safety
+│   └── response_matrix.py                          # Creates response_matrices images
 │
-├── irt_validations/           # Post-estimation validation and analysis experiments
-│   ├── xsafety/ # Irt validations for XSafety dataset
-│   ├── A_model-selection.py   # Experiment A: 1PL vs 2PL vs GRM; AIC/BIC; item/person fit
-│   ├── B_variable-reliability_2PL.py  # Experiment B (2PL): split-half, ICC, τ stability
-│   ├── D_predictive-validation_2PL.py # Experiment D (2PL): LOFO, LOLO, CV; τ ablation
-│   ├── anchor_sensitivity_ablation.py # Runs the same model under six anchor conditions and compares θ/γ/τ stability
-|   ├── english_worst_response_length.py # 22 model configurations whose HIGHEST JSR is in English, compares response length (tokens) across languages
-|   ├── english_worst_response_pairs.py # Finds the model configurations whose highest JSR is in English, pulls up to 100 prompt pairs
-│   ├── grok_incomprehension.py # For every Grok response in Javanese, Swahili, Bengali, and English across all 10 passes, uses GPT-4.1-mini
-│   ├── h1_irt_analysis.py # H1 Direct Test: Isolating δ_jL (Model-Language Aptitude)
-│   ├── high_tau_categories.py # Count harm categories among top 100 highest positive-τ prompts.
-│   ├── high_tau_prompt-response_inspection.py # Qualitative Inspection of High Positive-τ Prompt×Language Pairs
-│   ├── high_tau_top100-prompts.py # Extract top 100 highest τ (positive = harder in non-English) pairs.
-│   ├── jsr_difficulty.py      # Post-hoc JSR vs θ and JSR_lang vs (θ+δ) analysis
-│   ├── jsr_irt_analysis.py    # Rank divergence: RMSRD, QWK, top movers, heatmaps
-│   ├── jsr_irt_ordering.py    # Ability heatmaps: JSR vs (θ+δ), English focus, rank Δ
-│   ├── tau_ambiguity.py # Uses the OpenAI API to have GPT classify/analyze ambiguous tau items
-│   ├── tau_judge_artifact.py # Tests whether cross-lingual safety gaps (τ_iL) are inflated by language-dependent judge disagreement.
-│   ├── tau_multidimensionality.py # Tests whether τ (Cross-Lingual Safety Gap) absorbs residual multi-dimensionality beyond θ.
-│   ├── temperature_jsr_by_language.py # Plots mean JSR for each temperature model configuration 
-│   └── results_experiment_A/  # Model selection outputs
-│   └── results_experiment_B/  # Reliability outputs
-│   └── results_experiment_D/  # Predictive validation outputs
-│   └── results_jsr_theta_posthoc/  # JSR vs θ scatter plots, correlation CSVs
-│   └── results_rank_divergence/    # Divergence metrics, top movers, family heatmaps
-│   └── results_ability_heatmaps/   # Dual heatmaps, English focus, rank discrepancy
+├── irt_validations/                                # Post-estimation validation and analysis experiments
+│   ├── xsafety/                                    # IRT validations for XSafety dataset
+│   ├── A_model-selection.py                        # Experiment A: 1PL vs 2PL vs GRM; AIC/BIC; item/person fit
+│   ├── B_variable-reliability_2PL.py               # Experiment B (2PL): split-half, ICC, τ stability
+│   ├── D_predictive-validation_2PL.py              # Experiment D (2PL): LOFO, LOLO, CV; τ ablation
+│   ├── anchor_sensitivity_ablation.py              # Same model under six anchor conditions, compares θ/γ/τ stability
+│   ├── english_worst_response_length.py            # 22 configs with highest JSR in English, compares response length
+│   ├── english_worst_response_pairs.py             # Finds English-worst configs, pulls up to 100 prompt pairs
+│   ├── grok_incomprehension.py                     # Classifies Grok responses as genuine vs incomprehension via GPT-4.1-mini
+│   ├── h1_irt_analysis.py                          # Isolating δ_jL (Model-Language Aptitude)
+│   ├── high_tau_categories.py                      # Count harm categories among top 100 highest positive-τ prompts
+│   ├── high_tau_prompt-response_inspection.py      # Qualitative inspection of high positive-τ prompt×language pairs
+│   ├── high_tau_top100-prompts.py                  # Extract top 100 highest τ (positive = harder in non-English) pairs
+│   ├── jsr_difficulty.py                           # Post-hoc JSR vs θ and JSR_lang vs (θ+δ) analysis
+│   ├── jsr_irt_analysis.py                         # Rank divergence: RMSRD, QWK, top movers, heatmaps
+│   ├── jsr_irt_ordering.py                         # Ability heatmaps: JSR vs (θ+δ), English focus, rank Δ
+│   ├── tau_ambiguity.py                            # GPT-5.2 classifies ambiguous τ items (Likert 1-5)
+│   ├── tau_judge_artifact.py                       # Tests whether τ is inflated by judge disagreement
+│   ├── tau_multidimensionality.py                  # Tests whether τ absorbs residual multi-dimensionality
+│   ├── temperature_jsr_by_language.py              # Plots mean JSR for each temperature config
+│   ├── results_experiment_A/                       # Model selection outputs
+│   ├── results_experiment_B/                       # Reliability outputs
+│   ├── results_experiment_D/                       # Predictive validation outputs
+│   ├── results_jsr_theta_posthoc/                  # JSR vs θ scatter plots, correlation CSVs
+│   ├── results_rank_divergence/                    # Divergence metrics, top movers, family heatmaps
+│   └── results_ability_heatmaps/                   # Dual heatmaps, English focus, rank discrepancy
 │
-├── data_curation/             # Data collection, grading, and ablation pipelines
-│   ├── test_takers.py         # Collect model responses: --config gpt|gemini|claude_3|...
-│   ├── batch_grading.py       # OpenAI Batch API grading pipeline (11 subcommands)
-│   ├── judge_ablation.py      # Inter-rater agreement (Claude, Gemini, human judges)
-│   ├── variant_ablation.py    # Variant similarity (Cohen/Fleiss kappa, doppelgangers)
-│   ├── configs/               # One file per model family
-│   └── shared/                # Reusable utilities (multijail, grading prompt, async helpers)
+├── data_curation/                                  # Data collection, grading, and ablation pipelines
+│   ├── test_takers.py                              # Collect model responses: --config gpt|gemini|claude_3|...
+│   ├── batch_grading.py                            # OpenAI Batch API grading pipeline (11 subcommands)
+│   ├── judge_ablation.py                           # Inter-rater agreement (Claude, Gemini, human judges)
+│   ├── variant_ablation.py                         # Variant similarity (Cohen/Fleiss kappa, doppelgangers)
+│   ├── configs/                                    # One file per model family
+│   └── shared/                                     # Reusable utilities (multijail, grading prompt, async helpers)
 │
-├── power_calculation.py       # Pass@K power analysis simulation
-├── collect_data.sh            # End-to-end data collection script
-├── reproduce.sh               # Full reproduction script
+├── power_calculation.py                            # Pass@K power analysis simulation
+├── collect_data.sh                                 # End-to-end data collection script
+├── reproduce.sh                                    # Full reproduction script
 └── requirements.txt
 ```
 

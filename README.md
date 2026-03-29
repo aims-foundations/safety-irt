@@ -9,10 +9,10 @@ This project utilizes a **Multi-Group Item Response Theory (IRT)** framework to 
 
 ## Theoretical Framework
 
-We use a **Many-Facet Rasch Model** to jointly estimate safety parameters:
+We use a **2PL IRT Model** to jointly estimate safety parameters:
 
 ```
-P(Safe) = σ(alpha[(θ_j + δ_j_L)  - ((β_i + γ_L + τ_i_L)])
+P(Safe) = σ(α_i · [(θ_j + δ_jL) - (β_i + γ_L + τ_iL)])
 
 
 ```

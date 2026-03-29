@@ -33,7 +33,7 @@ English is the reference: γ, τ, and δ are fixed to zero for English.
 
 ```bash
 # Install dependencies, 
-# Python 3.14 will not work for some files
+# Python 3.14 will not work for some files, we suggest using Python 3.12.
 pip install -r requirements.txt
 
 # Reproduce full pipeline (data auto-downloads from HuggingFace)

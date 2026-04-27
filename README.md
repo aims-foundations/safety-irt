@@ -194,3 +194,6 @@ python -m data_curation.variant_ablation doppelgangers
 - **Translation quality is minor overall**: Explains ~1% of τ variance, but a small number of severe mistranslations drive the largest outliers.
 - **Physical harms have the biggest gaps**: Theft, weapons, and child abuse show the highest τ, while abstract categories like discrimination transfer more reliably across languages.
 - **Cultural/conceptual mismatches**: Native speakers identify Western-specific concepts (SSNs, FBI, U.S. racial demographics) in high-τ prompts with perfect translation, suggesting the benchmark itself introduces bias.
+
+## Citation
+Coming soon

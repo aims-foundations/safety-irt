@@ -65,7 +65,7 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
     θ_j ~ Normal(0, 1)         — model safety ability
     β_i ~ Normal(0, 1)         — base prompt difficulty (English)
     γ_L ~ Normal(0, 1)         — global language shift (English = 0)
-    τ_iL ~ StudentT(1, 0, s)   — cross-lingual safety gap (sparse, English = 0, anchors = 0)
+    τ_iL ~ StudentT(1, 0, s) / N(0, 0.01)  — cross-lingual safety gap: horseshoe for non-anchors, tight Normal for anchors
     δ_jL ~ Normal(0, 0.5)      — model-language aptitude (English = 0)
     """
     # --- Person parameters ---
@@ -88,16 +88,18 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
     gamma = pyro.deterministic("gamma", gamma_raw * gamma_mask)
 
     # --- Cross-lingual safety gap (sparse) ---
+    # Non-anchors: horseshoe-like StudentT prior via global HalfCauchy scale
+    # Anchors: tight N(0, 0.01) prior per paper §3
     tau_scale = pyro.sample("tau_scale",
-    dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
-    tau_scale_per = torch.where(
-        anchor_mask_tensor > 0.5,
-        torch.full((num_prompts, num_langs), 0.01, device=device),
-        tau_scale.expand(num_prompts, num_langs))
+        dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
     tau_raw = pyro.sample("tau_raw",
         dist.StudentT(1.0, torch.zeros(num_prompts, num_langs, device=device),
-                    tau_scale_per).to_event(2))
-    tau = pyro.deterministic("tau", tau_raw * tau_mask)
+                      tau_scale.expand(num_prompts, num_langs)).to_event(2))
+    tau_anchor = pyro.sample("tau_anchor",
+        dist.Normal(torch.zeros(num_prompts, num_langs, device=device),
+                    0.01 * torch.ones(num_prompts, num_langs, device=device)).to_event(2))
+    tau_combined = torch.where(anchor_mask_tensor.bool(), tau_anchor, tau_raw)
+    tau = pyro.deterministic("tau", tau_combined * tau_mask)
 
     # --- Model-language aptitude ---
     delta_raw = pyro.sample("delta_raw",

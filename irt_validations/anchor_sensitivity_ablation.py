@@ -1,40 +1,57 @@
 # -*- coding: utf-8 -*-
 """
-Anchor Sensitivity Ablation (2PL Bayesian IRT).
-================================================
-Runs the same model under six anchor conditions and compares θ/γ/τ stability.
+Anchor Sensitivity Ablation — γ/τ Multicollinearity Only
+=========================================================
+Refits the 2PL IRT model under seven anchor conditions and reports a single
+statistic per condition: Pearson r(γ_L, mean_i τ_iL) across the nine non-English
+languages.
 
-Anchors are selected via iterative purification with Lord's χ²(2) test
-(96.5% agreement with MTT forward selection, Kopf et al. 2015).
-anchors.csv = items DIF-free across all languages after BH-corrected purification.
+Why this statistic? γ_L (global language shift) and τ_{iL} (item-level cross-
+lingual safety gap) are both language-indexed. Without good anchors they trade
+off — high |r| means the language-level signal is smeared across both
+parameters, low |r| means they are cleanly separated. The paper's main fit
+reports |r| = 0.081 under Lord's-χ²-selected anchors; this script tests whether
+that low |r| is specific to our anchor procedure or a property of any
+reasonable anchor set.
 
-Conditions (τ prior held fixed = StudentT df=1 Horseshoe throughout):
-  lords_dif        -- Lord's iterative purification anchors (reference)
-  lords_small      -- random 50% subsample of Lord's anchors
-  lords_large      -- random 150% supersample of Lord's anchors
-  random_small     -- random 50% of |lords_dif|, drawn from all prompts
-  random_matched   -- random |lords_dif| prompts, drawn from all prompts
-  category_balanced-- stratified by prompt category (if available)
+Conditions (τ-anchor treatment fixed across all: τ_iL ~ Normal(0, 0.01) for
+anchor items across all non-English languages; non-anchor τ retains the
+StudentT(1, 0, tau_scale) horseshoe prior; English column hard-zero via mask):
 
-Stability metrics (all vs. strict reference):
-  θ: Spearman ρ + RMSE
-  γ: Pearson r + max |Δγ|
-  τ: RMSE (non-anchor, non-English cells)
+  lords_dif           — top 40 by mean Lord's χ² (= our published anchor set)
+  lords_small         — top 20 by mean Lord's χ²            (nested ⊂ lords_dif)
+  lords_large         — top 60 by mean Lord's χ²            (lords_dif ⊂)
+  random_small        — 20 random prompts (no DIF screening)
+  random_matched      — 40 random prompts (no DIF screening)
+  category_balanced   — stratified sample from multijail.csv harm tags. For
+                        each of 18 MultiJail categories, we take 2 prompts at
+                        random; total ≈ 36 anchors (≤ if categories are
+                        smaller than 2 prompts). Tests whether *content*-
+                        balanced anchors (no DIF info) work as well as our
+                        χ²-ranked set.
+  iterative_purification — 57 prompts from anchors_lords_deprecated.csv (HF
+                        snapshot). This is the result of classical Lord
+                        iterative purification run *without* the 5–95% safety-
+                        rate filter (with the filter, the candidate pool is
+                        empty — see paper Sec. 3, "Traditional anchor
+                        selection"). Included to verify that the standard
+                        purification procedure produces a degenerate fit with
+                        high γ–τ multicollinearity, motivating our heuristic.
 
-Outputs (results_anchor_sensitivity/):
-  anchor_conditions.csv          -- anchor IDs per condition
-  params_all_conditions.csv      -- θ/γ/τ for every condition
-  stability_summary.csv          -- correlation / RMSE table
-  theta_stability.png            -- scatter grid θ_cond vs θ_strict
-  gamma_stability.png            -- grouped bar γ per language
-  tau_stability.png              -- RMSE of τ per language × condition
-  convergence.png                -- ELBO loss curves
+Outputs (results_gamma_tau_multicollinearity/):
+  anchor_conditions.csv             — anchor IDs per condition (reproducibility)
+  gamma_tau_multicollinearity.csv   — one row per condition with Pearson r,
+                                      |r|, p-value, n_anchors
+
+Headline expectation: lords_dif (and its nested subsets) yields the lowest |r|;
+random and iterative_purification yield much higher |r|, confirming our
+selection criterion materially improves γ/τ identification.
 """
 
 import os
 import sys
+import ast
 import warnings
-import itertools
 warnings.filterwarnings('ignore')
 
 import torch
@@ -44,55 +61,49 @@ from pyro.infer import SVI, Trace_ELBO, Predictive
 from pyro.optim import ClippedAdam
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-from scipy.stats import spearmanr, pearsonr
+from scipy.stats import pearsonr
 from tqdm import tqdm
 from huggingface_hub import snapshot_download
 
-# ── fig_style integration ────────────────────────────────────────────────────
-_sys = sys
-_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-try:
-    from fig_style import (apply_style, savefig as fs_savefig, make_fig_grid,
-                           C_RED, C_BLUE, C_PURPLE, COLORS_3, LANG_ORDER)
-    _HAS_FIG_STYLE = True
-except ImportError:
-    _HAS_FIG_STYLE = False
-    C_RED, C_BLUE, C_PURPLE = '#c0392b', '#2471a3', '#7d3c98'
-    COLORS_3 = [C_BLUE, C_RED, C_PURPLE]
-    LANG_ORDER = None
 
 # ── paths ────────────────────────────────────────────────────────────────────
-DATA_DIR    = snapshot_download(repo_id="safety-irt/safety-data", repo_type="dataset", token=False)
-INPUT_FILE  = os.path.join(DATA_DIR, "processed_data", "Master_Passes0-9_Dataset.csv")
-ANCHOR_FILE = os.path.join(DATA_DIR, "anchors", "anchors.csv")
-RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "results_anchor_sensitivity")
+DATA_DIR    = snapshot_download(repo_id="safety-irt/safety-data",
+                                repo_type="dataset", token=False)
+INPUT_FILE  = os.path.join(DATA_DIR, "processed_data",
+                           "Master_Passes0-9_Dataset.csv")
+MULTIJAIL_FILE = os.path.join(DATA_DIR, "multijail.csv")
+ITER_PURIF_FILE = os.path.join(DATA_DIR, "anchors",
+                                "anchors_lords_deprecated.csv")
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(THIS_DIR)
+MODEL_DIR = os.path.join(REPO_ROOT, "model")
+ANCHORS_OUT_DIR = os.path.join(MODEL_DIR, "results_dif_stratified")
+DIF_SCORES_FILE = os.path.join(ANCHORS_OUT_DIR, "dif_agreement_scores.csv")
+
+RESULTS_DIR = os.path.join(THIS_DIR, "results_gamma_tau_multicollinearity")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-# ── config ────────────────────────────────────────────────────────────────────
+
+# ── config ───────────────────────────────────────────────────────────────────
 MAX_STEPS    = 4000
 CONV_WINDOW  = 200
 CONV_THRESH  = 1e-4
 MIN_STEPS    = 1000
 N_SAMPLES    = 500
 SEED         = 42
+ANCHOR_PRIOR_SIGMA = 0.01
+
+LORDS_DIF_N     = 40
+LORDS_SMALL_N   = 20
+LORDS_LARGE_N   = 60
+RANDOM_SMALL_N  = 20
+RANDOM_MATCHED_N = 40
+CATBAL_PER_TAG  = 2
+
 np.random.seed(SEED)
 torch.manual_seed(SEED)
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# ── condition palette ─────────────────────────────────────────────────────────
-COND_COLORS = {
-    'lords_dif':         '#2c3e50',
-    'lords_small':       C_BLUE,
-    'lords_large':       C_PURPLE,
-    'random_small':      '#e67e22',
-    'random_matched':    '#27ae60',
-    'category_balanced': C_RED,
-}
-REFERENCE_COND = 'lords_dif'
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -102,6 +113,24 @@ def clean_id(x):
         return str(int(float(x)))
     except Exception:
         return str(x).strip()
+
+
+def parse_tags_cell(x):
+    if pd.isna(x):
+        return []
+    if isinstance(x, list):
+        return [str(t).strip() for t in x if str(t).strip()]
+    s = str(x).strip()
+    if not s:
+        return []
+    if s.startswith("[") and s.endswith("]"):
+        try:
+            out = ast.literal_eval(s)
+            if isinstance(out, list):
+                return [str(t).strip() for t in out if str(t).strip()]
+        except Exception:
+            pass
+    return [s]
 
 
 def check_convergence(losses, window, threshold, min_steps):
@@ -114,11 +143,18 @@ def check_convergence(losses, window, threshold, min_steps):
     return (previous - recent) / abs(previous) < threshold
 
 
-# ── 2PL model (Horseshoe τ prior, identical to main model/irt.py) ────────────
+# ── 2PL model with soft anchor prior ────────────────────────────────────────
 
 def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
               num_students=None, num_prompts=None, num_langs=None,
-              tau_mask=None, gamma_mask=None):
+              tau_mask=None, gamma_mask=None, anchor_mask_tensor=None):
+    """
+    P(safe) = σ(α_i · ((θ_j + δ_jL) − (β_i + γ_L + τ_iL)))
+
+    Anchor items: τ_{i,L} ~ Normal(0, 0.01) across all L (soft constraint).
+    Non-anchor items: τ_{i,L} ~ StudentT(1, 0, tau_scale) (horseshoe-like).
+    English column: hard zero via tau_mask (identification).
+    """
     theta = pyro.sample("theta",
         dist.Normal(torch.zeros(num_students, device=device), 1.0).to_event(1))
     beta = pyro.sample("beta",
@@ -126,124 +162,142 @@ def model_2pl(student_idx, prompt_idx, lang_idx, obs=None,
     alpha = pyro.sample("alpha",
         dist.LogNormal(0.5 * torch.ones(num_prompts, device=device),
                        0.5 * torch.ones(num_prompts, device=device)).to_event(1))
+
     gamma_raw = pyro.sample("gamma_raw",
         dist.Normal(torch.zeros(num_langs, device=device), 1.0).to_event(1))
     gamma = pyro.deterministic("gamma", gamma_raw * gamma_mask)
 
+    # τ: dual-sample. Anchor cells use tau_anchor (Normal), non-anchor cells
+    # use tau_nonanchor (StudentT). Combine via anchor_mask_tensor.
+    tau_anchor = pyro.sample("tau_anchor",
+        dist.Normal(torch.zeros(num_prompts, num_langs, device=device),
+                    ANCHOR_PRIOR_SIGMA).to_event(2))
+
     tau_scale = pyro.sample("tau_scale",
         dist.HalfCauchy(torch.ones(1, device=device)).to_event(1))
-    tau_raw = pyro.sample("tau_raw",
+    tau_nonanchor = pyro.sample("tau_nonanchor",
         dist.StudentT(1.0,
                       torch.zeros(num_prompts, num_langs, device=device),
                       tau_scale).to_event(2))
-    tau = pyro.deterministic("tau", tau_raw * tau_mask)
+
+    tau_combined = (anchor_mask_tensor * tau_anchor
+                    + (1.0 - anchor_mask_tensor) * tau_nonanchor)
+    tau = pyro.deterministic("tau", tau_combined * tau_mask)
 
     delta_raw = pyro.sample("delta_raw",
-        dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5).to_event(2))
+        dist.Normal(torch.zeros(num_students, num_langs, device=device), 0.5)
+            .to_event(2))
     delta_mask = gamma_mask.unsqueeze(0).expand(num_students, -1)
     delta = pyro.deterministic("delta", delta_raw * delta_mask)
 
     with pyro.plate("data", len(student_idx)):
-        ability     = theta[student_idx] + delta[student_idx, lang_idx]
-        difficulty  = beta[prompt_idx] + gamma[lang_idx] + tau[prompt_idx, lang_idx]
-        logits      = alpha[prompt_idx] * (ability - difficulty)
+        ability    = theta[student_idx] + delta[student_idx, lang_idx]
+        difficulty = beta[prompt_idx] + gamma[lang_idx] + tau[prompt_idx, lang_idx]
+        logits     = alpha[prompt_idx] * (ability - difficulty)
         pyro.sample("obs", dist.Bernoulli(logits=logits), obs=obs)
 
 
-# ── anchor set builder ────────────────────────────────────────────────────────
+# ── anchor set construction ──────────────────────────────────────────────────
 
-def build_anchor_sets(df, rng=None):
-    """
-    Returns dict: condition_name -> set of prompt IDs (strings).
-    """
-    if rng is None:
-        rng = np.random.default_rng(SEED)
+def ensure_dif_scores():
+    """Make sure dif_agreement_scores.csv exists; if not, run anchors.py."""
+    if os.path.exists(DIF_SCORES_FILE):
+        print(f"  Using existing ranked scores: {DIF_SCORES_FILE}")
+        return pd.read_csv(DIF_SCORES_FILE)
 
-    all_prompts = sorted(df['id'].unique())
+    print(f"  {DIF_SCORES_FILE} not found — running anchors.py to generate...")
+    sys.path.insert(0, MODEL_DIR)
+    import anchors as _anchors_module
+    _anchors_module.main()
+    if not os.path.exists(DIF_SCORES_FILE):
+        raise FileNotFoundError(
+            f"anchors.py did not produce {DIF_SCORES_FILE}")
+    return pd.read_csv(DIF_SCORES_FILE)
 
-    # Load anchors.csv
-    if not os.path.exists(ANCHOR_FILE):
-        raise FileNotFoundError(f"Anchor file not found: {ANCHOR_FILE}")
 
-    adf = pd.read_csv(ANCHOR_FILE)
-    adf['id'] = adf['id'].apply(clean_id)
+def build_anchor_sets(df_raw):
+    scores_df = ensure_dif_scores()
+    scores_df["prompt_id"] = scores_df["prompt_id"].apply(clean_id)
+    scores_sorted = scores_df.sort_values("mean_chi2", ascending=True)
 
-    # Lord's DIF anchors: all items in anchors.csv are DIF-free by construction
-    lords_ids = set(adf['id'].unique())
-    n_lords   = len(lords_ids)
-    n_small   = max(10, int(n_lords * 0.5))
-    n_large   = int(n_lords * 1.5)
+    lords_dif_ids   = set(scores_sorted.head(LORDS_DIF_N)["prompt_id"].tolist())
+    lords_small_ids = set(scores_sorted.head(LORDS_SMALL_N)["prompt_id"].tolist())
+    lords_large_ids = set(scores_sorted.head(LORDS_LARGE_N)["prompt_id"].tolist())
 
-    lords_arr = np.array(sorted(lords_ids))
-    lords_perm = rng.permutation(len(lords_arr))
+    # ── Random conditions ────────────────────────────────────────────────────
+    all_prompts = sorted(df_raw["id"].unique())
+    rng = np.random.default_rng(SEED)
+    perm = rng.permutation(len(all_prompts))
+    arr = np.array(all_prompts)
 
-    # Subsample / supersample of the Lord's anchor set itself
-    lords_small_ids = set(lords_arr[lords_perm[:n_small]])
-    lords_large_ids = lords_ids | set(
-        np.array(all_prompts)[rng.permutation(len(all_prompts))[:(n_large - n_lords)]])
+    random_small_ids   = set(arr[perm[:RANDOM_SMALL_N]].tolist())
+    random_matched_ids = set(arr[perm[:RANDOM_MATCHED_N]].tolist())
 
-    # Random conditions: sample from ALL prompts (no DIF screening)
-    all_arr = np.array(all_prompts)
-    perm    = rng.permutation(len(all_arr))
-
-    random_small_ids   = set(all_arr[perm[:n_small]])
-    random_matched_ids = set(all_arr[perm[:n_lords]])
-
-    # Category-balanced: stratified sample by prompt tag/category
-    cat_col = 'tags' if 'tags' in df.columns else \
-              next((c for c in df.columns if 'category' in c.lower()), None)
-    if cat_col:
-        # tags may be stored as string repr of a list — extract first tag
-        tag_series = df.drop_duplicates('id').set_index('id')[cat_col].astype(str)
-        tag_map = tag_series.str.strip("[]'\"").str.split("'").str[0].str.strip("[], ")
-        categories = tag_map.unique()
-        per_cat = max(1, n_lords // len(categories))
+    # ── Category-balanced from multijail.csv ─────────────────────────────────
+    if os.path.exists(MULTIJAIL_FILE):
+        mj = pd.read_csv(MULTIJAIL_FILE).drop_duplicates(subset=["id"])
+        mj["id"] = mj["id"].apply(clean_id)
+        mj["tags_parsed"] = mj["tags"].apply(parse_tags_cell)
+        mj_long = (mj[["id", "tags_parsed"]].explode("tags_parsed")
+                     .rename(columns={"tags_parsed": "tag"})
+                     .dropna(subset=["tag"]))
         cat_ids = set()
-        for cat in categories:
-            cat_prompts = [p for p in all_prompts if tag_map.get(p) == cat]
-            if not cat_prompts:
+        cat_rng = np.random.default_rng(SEED + 1)
+        for tag, grp in mj_long.groupby("tag"):
+            candidates = grp["id"].astype(str).tolist()
+            candidates = [c for c in candidates if c in set(all_prompts)]
+            if not candidates:
                 continue
-            sampled = rng.choice(cat_prompts,
-                                 size=min(per_cat, len(cat_prompts)),
-                                 replace=False)
-            cat_ids.update(sampled)
+            n_sample = min(CATBAL_PER_TAG, len(candidates))
+            picked = cat_rng.choice(candidates, size=n_sample, replace=False)
+            cat_ids.update(picked.tolist())
         category_balanced_ids = cat_ids
-        print(f"  Category-balanced: {len(cat_ids)} anchors across {len(categories)} tags")
+        n_tags = mj_long["tag"].nunique()
+        print(f"  category_balanced: {len(cat_ids)} anchors "
+              f"({CATBAL_PER_TAG}/tag × {n_tags} tags = up to {CATBAL_PER_TAG*n_tags})")
     else:
-        # Fallback: evenly-spaced sample
-        step = max(1, len(all_prompts) // n_lords)
-        category_balanced_ids = set(all_arr[::step][:n_lords])
-        print(f"  [WARN] No tags/category column found — using evenly-spaced sample")
+        print(f"  [WARN] multijail.csv missing — skipping category_balanced")
+        category_balanced_ids = set()
+
+    # ── Iterative purification from deprecated CSV ───────────────────────────
+    if os.path.exists(ITER_PURIF_FILE):
+        iter_df = pd.read_csv(ITER_PURIF_FILE)
+        iter_df["id"] = iter_df["id"].apply(clean_id)
+        iterative_purification_ids = set(iter_df["id"].astype(str).unique())
+        print(f"  iterative_purification: {len(iterative_purification_ids)} "
+              f"anchors from anchors_lords_deprecated.csv (no 5-95% filter)")
+    else:
+        print(f"  [WARN] {ITER_PURIF_FILE} missing — skipping iterative_purification")
+        iterative_purification_ids = set()
 
     conditions = {
-        'lords_dif':         lords_ids,
-        'lords_small':       lords_small_ids,
-        'lords_large':       lords_large_ids,
-        'random_small':      random_small_ids,
-        'random_matched':    random_matched_ids,
-        'category_balanced': category_balanced_ids,
+        "lords_dif":              lords_dif_ids,
+        "lords_small":            lords_small_ids,
+        "lords_large":            lords_large_ids,
+        "random_small":           random_small_ids,
+        "random_matched":         random_matched_ids,
+        "category_balanced":      category_balanced_ids,
+        "iterative_purification": iterative_purification_ids,
     }
 
     print("\n  Anchor set sizes:")
     for name, ids in conditions.items():
-        ref = " ← REFERENCE" if name == REFERENCE_COND else ""
-        print(f"    {name:20s}: {len(ids):4d} prompts{ref}")
+        print(f"    {name:25s}: {len(ids):4d} prompts")
 
     return conditions
 
 
-# ── fitting ───────────────────────────────────────────────────────────────────
+# ── fitting ──────────────────────────────────────────────────────────────────
 
 def fit_condition(df, anchor_ids, cond_name):
-    """
-    Fit 2PL model for a given anchor set. Returns dict of extracted parameters.
-    """
     pyro.clear_param_store()
+    pyro.set_rng_seed(SEED)
+    torch.manual_seed(SEED)
 
-    sc        = 'test_taker' if 'test_taker' in df.columns else 'model'
+    sc = "test_taker" if "test_taker" in df.columns else "model"
     students  = sorted(df[sc].unique())
-    prompts   = sorted(df['id'].unique())
-    languages = sorted(df['language'].unique())
+    prompts   = sorted(df["id"].unique())
+    languages = sorted(df["language"].unique())
 
     s_map = {s: i for i, s in enumerate(students)}
     p_map = {p: i for i, p in enumerate(prompts)}
@@ -251,37 +305,39 @@ def fit_condition(df, anchor_ids, cond_name):
     ns, np_, nl = len(students), len(prompts), len(languages)
 
     s_idx = torch.tensor(df[sc].map(s_map).values, dtype=torch.long).to(device)
-    p_idx = torch.tensor(df['id'].map(p_map).values, dtype=torch.long).to(device)
-    l_idx = torch.tensor(df['language'].map(l_map).values, dtype=torch.long).to(device)
-    obs   = torch.tensor(df['score'].values, dtype=torch.float32).to(device)
+    p_idx = torch.tensor(df["id"].map(p_map).values, dtype=torch.long).to(device)
+    l_idx = torch.tensor(df["language"].map(l_map).values, dtype=torch.long).to(device)
+    obs   = torch.tensor(df["score"].values, dtype=torch.float32).to(device)
 
     tau_mask   = torch.ones((np_, nl), device=device)
     gamma_mask = torch.ones(nl, device=device)
-    if 'en' in l_map:
-        ei = l_map['en']
-        tau_mask[:, ei]  = 0.0
-        gamma_mask[ei]   = 0.0
+    if "en" in l_map:
+        ei = l_map["en"]
+        tau_mask[:, ei] = 0.0
+        gamma_mask[ei]  = 0.0
 
-    # Apply anchor constraints (τ_iL = 0 for anchor items)
+    # Soft-anchor mask: 1 for anchor items (across all langs), 0 otherwise
+    anchor_mask_tensor = torch.zeros((np_, nl), device=device)
     n_applied = 0
     for pid in prompts:
         if pid in anchor_ids:
-            tau_mask[p_map[pid], :] = 0.0
+            anchor_mask_tensor[p_map[pid], :] = 1.0
             n_applied += 1
     print(f"  [{cond_name}] {n_applied}/{len(anchor_ids)} anchors matched in data")
 
     guide = pyro.infer.autoguide.AutoNormal(
-        pyro.poutine.block(model_2pl, hide=["obs", "tau", "gamma", "delta"]))
+        pyro.poutine.block(model_2pl,
+                           hide=["obs", "tau", "gamma", "delta", "alpha"]))
     optimizer = ClippedAdam({"lr": 0.01, "clip_norm": 10.0})
     svi = SVI(model_2pl, guide, optimizer, loss=Trace_ELBO())
 
     losses = []
-    pbar   = tqdm(range(MAX_STEPS), desc=f"[{cond_name}]", leave=False)
+    pbar = tqdm(range(MAX_STEPS), desc=f"[{cond_name}]", leave=False)
     converged_at = MAX_STEPS
-
     for step in pbar:
         loss = svi.step(s_idx, p_idx, l_idx, obs,
-                        ns, np_, nl, tau_mask, gamma_mask)
+                        ns, np_, nl,
+                        tau_mask, gamma_mask, anchor_mask_tensor)
         losses.append(loss)
         if step % 200 == 0:
             pbar.set_description(f"[{cond_name}] Loss: {loss:.1f}")
@@ -289,401 +345,114 @@ def fit_condition(df, anchor_ids, cond_name):
             converged_at = step + 1
             pbar.close()
             break
-
     print(f"  [{cond_name}] Converged at step {converged_at}")
 
-    # Posterior samples — include theta, gamma, tau
-    pred  = Predictive(model_2pl, guide=guide, num_samples=N_SAMPLES,
-                       return_sites=["theta", "gamma", "tau", "beta", "alpha"])
-    samps = pred(s_idx, p_idx, l_idx, None, ns, np_, nl, tau_mask, gamma_mask)
+    pred = Predictive(model_2pl, guide=guide, num_samples=N_SAMPLES,
+                      return_sites=["gamma", "tau"])
+    samps = pred(s_idx, p_idx, l_idx, None,
+                 ns, np_, nl, tau_mask, gamma_mask, anchor_mask_tensor)
 
-    theta_mean = samps['theta'].mean(0).detach().cpu().numpy().reshape(ns)
-    gamma_mean = samps['gamma'].mean(0).detach().cpu().numpy().reshape(nl)
-    tau_mean   = samps['tau'].mean(0).detach().cpu().numpy().reshape(np_, nl)
-    tau_std    = samps['tau'].std(0).detach().cpu().numpy().reshape(np_, nl)
-    beta_mean  = samps['beta'].mean(0).detach().cpu().numpy().reshape(np_)
-    alpha_mean = samps['alpha'].mean(0).detach().cpu().numpy().reshape(np_)
+    gamma_mean = samps["gamma"].mean(0).detach().cpu().numpy().reshape(nl)
+    tau_mean   = samps["tau"].mean(0).detach().cpu().numpy().reshape(np_, nl)
 
     return {
-        'condition':     cond_name,
-        'theta':         theta_mean,      # (ns,)
-        'gamma':         gamma_mean,      # (nl,)
-        'tau_mean':      tau_mean,        # (np_, nl)
-        'tau_std':       tau_std,         # (np_, nl)
-        'beta':          beta_mean,       # (np_,)
-        'alpha':         alpha_mean,      # (np_,)
-        'tau_mask':      tau_mask.cpu().numpy(),
-        'students':      students,
-        'prompts':       prompts,
-        'languages':     languages,
-        's_map':         s_map,
-        'p_map':         p_map,
-        'l_map':         l_map,
-        'losses':        losses,
-        'converged_at':  converged_at,
-        'n_anchors':     n_applied,
+        "condition":      cond_name,
+        "n_anchors":      n_applied,
+        "converged_at":   converged_at,
+        "gamma":          gamma_mean,
+        "tau_mean":       tau_mean,
+        "l_map":          l_map,
     }
 
 
-# ── stability metrics ─────────────────────────────────────────────────────────
+# ── γ-τ multicollinearity statistic ─────────────────────────────────────────
 
-def compute_stability(results, ref_cond=REFERENCE_COND):
-    """
-    Compare each condition vs. reference on θ, γ, τ.
-    Returns a DataFrame of stability metrics.
-    """
-    ref = results[ref_cond]
-    rows = []
-
-    for cond_name, res in results.items():
-        # ── θ stability ──────────────────────────────────────────
-        # Both runs use the same student ordering since data is identical
-        theta_r = ref['theta']
-        theta_c = res['theta']
-        rho_theta, _ = spearmanr(theta_r, theta_c)
-        rmse_theta   = np.sqrt(np.mean((theta_r - theta_c) ** 2))
-
-        # ── γ stability ──────────────────────────────────────────
-        # Only non-English languages
-        non_en_idx = [i for l, i in ref['l_map'].items() if l != 'en']
-        gamma_r = ref['gamma'][non_en_idx]
-        gamma_c = res['gamma'][non_en_idx]
-        r_gamma, _ = pearsonr(gamma_r, gamma_c) if len(gamma_r) >= 3 else (np.nan, np.nan)
-        maxd_gamma  = np.max(np.abs(gamma_r - gamma_c))
-
-        # ── τ stability ──────────────────────────────────────────
-        # Compare only free (non-anchor, non-English) cells
-        # Use reference anchor mask to define "free" consistently
-        tau_r = ref['tau_mean']
-        tau_c = res['tau_mean']
-        free_mask = (ref['tau_mask'] > 0)   # True = not constrained to 0
-        if free_mask.any():
-            rmse_tau = np.sqrt(np.mean((tau_r[free_mask] - tau_c[free_mask]) ** 2))
-            mae_tau  = np.mean(np.abs(tau_r[free_mask] - tau_c[free_mask]))
-        else:
-            rmse_tau = mae_tau = np.nan
-
-        rows.append({
-            'condition':      cond_name,
-            'n_anchors':      res['n_anchors'],
-            'converged_at':   res['converged_at'],
-            'spearman_theta': rho_theta,
-            'rmse_theta':     rmse_theta,
-            'pearson_gamma':  r_gamma,
-            'max_delta_gamma': maxd_gamma,
-            'rmse_tau':       rmse_tau,
-            'mae_tau':        mae_tau,
-        })
-
-    return pd.DataFrame(rows)
+def gamma_tau_correlation(res):
+    """Pearson r(γ_L, mean_i τ_iL) across the 9 non-English languages."""
+    l_map = res["l_map"]
+    non_en = [(l, i) for l, i in l_map.items() if l != "en"]
+    gammas = np.array([res["gamma"][i] for _, i in non_en])
+    mean_taus = []
+    for _, i in non_en:
+        col = res["tau_mean"][:, i]
+        col = col[np.abs(col) > 1e-6]  # skip the English-column zeros
+        mean_taus.append(np.mean(col) if len(col) else 0.0)
+    mean_taus = np.array(mean_taus)
+    if len(gammas) < 3:
+        return np.nan, np.nan
+    r, p = pearsonr(gammas, mean_taus)
+    return float(r), float(p)
 
 
-# ── plots ─────────────────────────────────────────────────────────────────────
-
-def plot_theta_stability(results, ref_cond=REFERENCE_COND):
-    """
-    Grid of scatter plots: θ_cond vs θ_strict for each non-reference condition.
-    """
-    ref     = results[ref_cond]
-    theta_r = ref['theta']
-    others  = [c for c in results if c != ref_cond]
-    n       = len(others)
-
-    ncols = min(3, n)
-    nrows = (n + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4.5 * ncols, 4 * nrows),
-                             squeeze=False)
-
-    for idx, cond in enumerate(others):
-        ax      = axes[idx // ncols][idx % ncols]
-        theta_c = results[cond]['theta']
-        rho, _  = spearmanr(theta_r, theta_c)
-        rmse    = np.sqrt(np.mean((theta_r - theta_c) ** 2))
-
-        ax.scatter(theta_r, theta_c, s=18, alpha=0.55,
-                   color=COND_COLORS.get(cond, '#555555'),
-                   edgecolors='none')
-        lims = [min(theta_r.min(), theta_c.min()) - 0.1,
-                max(theta_r.max(), theta_c.max()) + 0.1]
-        ax.plot(lims, lims, color='black', ls='--', lw=0.8, alpha=0.5)
-        ax.set_xlabel(f'θ  ({ref_cond})', fontsize=9)
-        ax.set_ylabel(f'θ  ({cond})', fontsize=9)
-        ax.set_title(f'{cond}\nρ = {rho:.3f},  RMSE = {rmse:.3f}', fontsize=9)
-        ax.set_xlim(lims); ax.set_ylim(lims)
-        ax.set_aspect('equal')
-
-    # Hide unused axes
-    for j in range(idx + 1, nrows * ncols):
-        axes[j // ncols][j % ncols].set_visible(False)
-
-    fig.suptitle(f'θ Stability vs. {ref_cond} anchors', fontsize=12, fontweight='bold')
-    fig.tight_layout()
-    path = os.path.join(RESULTS_DIR, "theta_stability.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f"  Saved: theta_stability.png")
-
-
-def plot_gamma_stability(results, ref_cond=REFERENCE_COND):
-    """
-    Grouped bar chart of γ_L per language per condition.
-    Reference condition drawn with hatching for easy comparison.
-    """
-    ref    = results[ref_cond]
-    l_map  = ref['l_map']
-    langs  = [l for l in (LANG_ORDER or sorted(l_map.keys())) if l in l_map and l != 'en']
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
-
-    # Left: grouped bars
-    ax    = axes[0]
-    x     = np.arange(len(langs))
-    width = 0.8 / len(results)
-    for i, (cond, res) in enumerate(results.items()):
-        vals = [res['gamma'][l_map[l]] for l in langs]
-        bars = ax.bar(x + i * width - 0.4 + width / 2, vals, width,
-                      label=cond, color=COND_COLORS.get(cond, '#888'),
-                      edgecolor='black', linewidth=0.4,
-                      hatch='//' if cond == ref_cond else '')
-    ax.set_xticks(x)
-    ax.set_xticklabels(langs, fontsize=9)
-    ax.axhline(0, color='black', lw=0.8)
-    ax.set_ylabel('γ_L', fontsize=10)
-    ax.set_title('Language Shift γ by Anchor Condition', fontweight='bold')
-    ax.legend(fontsize=7, ncol=2)
-    ax.grid(axis='y', alpha=0.2)
-
-    # Right: deviation from reference
-    ax = axes[1]
-    for cond, res in results.items():
-        if cond == ref_cond:
-            continue
-        deviations = [res['gamma'][l_map[l]] - ref['gamma'][l_map[l]] for l in langs]
-        ax.plot(langs, deviations, 'o-', label=cond,
-                color=COND_COLORS.get(cond, '#888'), markersize=5, linewidth=1.5)
-    ax.axhline(0, color='black', lw=1, ls='--')
-    ax.set_ylabel(f'Δγ  (cond − {ref_cond})', fontsize=10)
-    ax.set_title('γ Deviation from Reference', fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.2)
-
-    fig.suptitle('γ Stability Across Anchor Conditions', fontsize=12, fontweight='bold')
-    fig.tight_layout()
-    path = os.path.join(RESULTS_DIR, "gamma_stability.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f"  Saved: gamma_stability.png")
-
-
-def plot_tau_stability(results, ref_cond=REFERENCE_COND):
-    """
-    RMSE of τ vs. reference, broken down by language.
-    Also shows distribution of τ values per condition.
-    """
-    ref    = results[ref_cond]
-    l_map  = ref['l_map']
-    langs  = [l for l in (LANG_ORDER or sorted(l_map.keys())) if l in l_map and l != 'en']
-    others = [c for c in results if c != ref_cond]
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
-
-    # Left: per-language RMSE bar chart
-    ax    = axes[0]
-    x     = np.arange(len(langs))
-    width = 0.8 / len(others)
-    for i, cond in enumerate(others):
-        rmse_per_lang = []
-        for lang in langs:
-            li       = l_map[lang]
-            free_row = ref['tau_mask'][:, li] > 0
-            t_ref    = ref['tau_mean'][free_row, li]
-            t_cond   = results[cond]['tau_mean'][free_row, li]
-            rmse     = np.sqrt(np.mean((t_ref - t_cond) ** 2)) if free_row.any() else np.nan
-            rmse_per_lang.append(rmse)
-        ax.bar(x + i * width - 0.4 + width / 2, rmse_per_lang, width,
-               label=cond, color=COND_COLORS.get(cond, '#888'),
-               edgecolor='black', linewidth=0.4)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(langs, fontsize=9)
-    ax.set_ylabel(f'RMSE(τ vs {ref_cond})', fontsize=10)
-    ax.set_title('τ RMSE by Language vs. Reference', fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.grid(axis='y', alpha=0.2)
-
-    # Right: τ distribution per condition (violin/box)
-    ax = axes[1]
-    tau_data   = []
-    cond_labels = []
-    for cond, res in results.items():
-        free = res['tau_mask'] > 0
-        vals = res['tau_mean'][free]
-        tau_data.append(vals)
-        cond_labels.append(cond)
-
-    parts = ax.violinplot(tau_data, positions=range(len(cond_labels)),
-                          showmedians=True, widths=0.6)
-    for i, (body, cond) in enumerate(zip(parts['bodies'], cond_labels)):
-        body.set_facecolor(COND_COLORS.get(cond, '#888'))
-        body.set_alpha(0.6)
-    ax.set_xticks(range(len(cond_labels)))
-    ax.set_xticklabels(cond_labels, rotation=20, ha='right', fontsize=8)
-    ax.axhline(0, color='black', lw=0.8, ls='--')
-    ax.set_ylabel('τ_iL (free cells)', fontsize=10)
-    ax.set_title('τ Distribution per Condition', fontweight='bold')
-    ax.grid(axis='y', alpha=0.2)
-
-    fig.suptitle('τ Stability Across Anchor Conditions', fontsize=12, fontweight='bold')
-    fig.tight_layout()
-    path = os.path.join(RESULTS_DIR, "tau_stability.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f"  Saved: tau_stability.png")
-
-
-def plot_convergence(results):
-    """ELBO loss curves for all conditions."""
-    fig, ax = plt.subplots(figsize=(8, 3.5))
-    for cond, res in results.items():
-        losses = np.array(res['losses'])
-        ax.plot(losses, alpha=0.8, label=cond,
-                color=COND_COLORS.get(cond, '#888'), linewidth=1.2)
-    ax.set_xlabel('SVI Step', fontsize=10)
-    ax.set_ylabel('ELBO Loss', fontsize=10)
-    ax.set_title('Training Convergence per Anchor Condition', fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.2)
-    fig.tight_layout()
-    path = os.path.join(RESULTS_DIR, "convergence.png")
-    fig.savefig(path, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f"  Saved: convergence.png")
-
-
-# ── save parameter CSVs ───────────────────────────────────────────────────────
-
-def save_params_csv(results):
-    """Save θ, γ, τ for every condition to a long-format CSV."""
-    rows = []
-    ref  = results[REFERENCE_COND]
-
-    for cond, res in results.items():
-        l_map = res['l_map']
-        p_map = res['p_map']
-        s_map = res['s_map']
-
-        # θ rows
-        for student, si in s_map.items():
-            rows.append({'condition': cond, 'param': 'theta',
-                         'student': student, 'language': None, 'prompt': None,
-                         'value': res['theta'][si]})
-
-        # γ rows
-        for lang, li in l_map.items():
-            rows.append({'condition': cond, 'param': 'gamma',
-                         'student': None, 'language': lang, 'prompt': None,
-                         'value': res['gamma'][li]})
-
-        # τ rows (non-anchor, non-English)
-        for prompt, pi in p_map.items():
-            for lang, li in l_map.items():
-                if lang == 'en':
-                    continue
-                if res['tau_mask'][pi, li] == 0:
-                    continue
-                rows.append({'condition': cond, 'param': 'tau',
-                             'student': None, 'language': lang, 'prompt': prompt,
-                             'value': res['tau_mean'][pi, li]})
-
-    pd.DataFrame(rows).to_csv(
-        os.path.join(RESULTS_DIR, "params_all_conditions.csv"), index=False)
-    print("  Saved: params_all_conditions.csv")
-
-
-def save_anchor_conditions(anchor_sets):
-    """Save anchor IDs per condition."""
-    rows = []
-    for cond, ids in anchor_sets.items():
-        for pid in sorted(ids):
-            rows.append({'condition': cond, 'prompt_id': pid})
-    pd.DataFrame(rows).to_csv(
-        os.path.join(RESULTS_DIR, "anchor_conditions.csv"), index=False)
-    print("  Saved: anchor_conditions.csv")
-
-
-# ── main ──────────────────────────────────────────────────────────────────────
+# ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    if _HAS_FIG_STYLE:
-        apply_style()
+    print("=" * 70)
+    print("ANCHOR SENSITIVITY ABLATION — γ/τ MULTICOLLINEARITY")
+    print("=" * 70)
 
-    print("=" * 65)
-    print("ANCHOR SENSITIVITY ABLATION")
-    print("=" * 65)
-
-    # Load data
     print("\nLoading data...")
-    df = pd.read_csv(INPUT_FILE, engine='python', on_bad_lines='skip')
-    df['judge_score'] = pd.to_numeric(df['judge_score'], errors='coerce')
-    df = df[df['judge_score'] > 0].dropna(subset=['judge_score']).copy()
-    df['score'] = (df['judge_score'] >= 4).astype(np.float32)
-    df['id']    = df['id'].apply(clean_id)
-    sc = 'test_taker' if 'test_taker' in df.columns else 'model'
+    df = pd.read_csv(INPUT_FILE, engine="python", on_bad_lines="skip")
+    df["judge_score"] = pd.to_numeric(df["judge_score"], errors="coerce")
+    df = df[df["judge_score"] > 0].dropna(subset=["judge_score"]).copy()
+    df["score"] = (df["judge_score"] >= 4).astype(np.float32)
+    df["id"]    = df["id"].apply(clean_id)
+    sc = "test_taker" if "test_taker" in df.columns else "model"
     print(f"  {len(df):,} rows | {df[sc].nunique()} models | "
           f"{df['id'].nunique()} prompts | {df['language'].nunique()} languages")
 
-    # Build anchor sets
     print("\nBuilding anchor conditions...")
-    rng         = np.random.default_rng(SEED)
-    anchor_sets = build_anchor_sets(df, rng)
-    save_anchor_conditions(anchor_sets)
+    anchor_sets = build_anchor_sets(df)
+
+    # Save anchor IDs per condition
+    cond_rows = []
+    for cond, ids in anchor_sets.items():
+        for pid in sorted(ids):
+            cond_rows.append({"condition": cond, "prompt_id": pid})
+    pd.DataFrame(cond_rows).to_csv(
+        os.path.join(RESULTS_DIR, "anchor_conditions.csv"), index=False)
 
     # Fit each condition
     results = {}
-    for cond_name, anchor_ids in anchor_sets.items():
-        ref_tag = " ← REFERENCE" if cond_name == REFERENCE_COND else ""
-        print(f"\n{'─' * 55}")
-        print(f"Fitting: {cond_name}{ref_tag}  (n_anchors = {len(anchor_ids)})")
-        print(f"{'─' * 55}")
-        results[cond_name] = fit_condition(df, anchor_ids, cond_name)
-
-    # Stability metrics
-    print("\nComputing stability metrics...")
-    stability = compute_stability(results)
-    stability.to_csv(os.path.join(RESULTS_DIR, "stability_summary.csv"), index=False)
-
-    print(f"\n{'=' * 65}")
-    print("STABILITY SUMMARY  (vs. reference: strict)")
-    print(f"{'=' * 65}")
-    print(stability.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
-
-    # Save params
-    print("\nSaving parameter CSVs...")
-    save_params_csv(results)
-
-    # Plots
-    print("\nGenerating figures...")
-    plot_theta_stability(results)
-    plot_gamma_stability(results)
-    plot_tau_stability(results)
-    plot_convergence(results)
-
-    # Summary for paper
-    print(f"\n{'=' * 65}")
-    print("KEY FINDINGS")
-    print(f"{'=' * 65}")
-    ref_row = stability[stability['condition'] == REFERENCE_COND].iloc[0]
-    for _, row in stability.iterrows():
-        if row['condition'] == REFERENCE_COND:
+    for cond_name, ids in anchor_sets.items():
+        if not ids:
+            print(f"\n[{cond_name}] empty anchor set — skipping")
             continue
-        print(f"\n  vs. {row['condition']:20s}:")
-        print(f"    θ  Spearman ρ = {row['spearman_theta']:.3f}  "
-              f"RMSE = {row['rmse_theta']:.3f}")
-        print(f"    γ  Pearson  r = {row['pearson_gamma']:.3f}  "
-              f"max|Δγ| = {row['max_delta_gamma']:.3f}")
-        print(f"    τ  RMSE = {row['rmse_tau']:.3f}")
+        print(f"\n{'─' * 60}\nFitting: {cond_name}  (n={len(ids)})\n{'─' * 60}")
+        results[cond_name] = fit_condition(df, ids, cond_name)
 
-    print(f"\nAll outputs in: {RESULTS_DIR}/")
+    # Compute γ-τ correlation
+    print("\nComputing γ-τ correlations...")
+    rows = []
+    for cond, res in results.items():
+        r, p = gamma_tau_correlation(res)
+        rows.append({
+            "condition":      cond,
+            "n_anchors":      res["n_anchors"],
+            "converged_at":   res["converged_at"],
+            "pearson_r":      r,
+            "abs_r":          abs(r),
+            "p_value":        p,
+        })
+
+    summary = pd.DataFrame(rows).sort_values("abs_r", ascending=True)
+    out_path = os.path.join(RESULTS_DIR, "gamma_tau_multicollinearity.csv")
+    summary.to_csv(out_path, index=False)
+
+    # ── Print final table ────────────────────────────────────────────────────
+    print(f"\n{'=' * 70}")
+    print("γ/τ MULTICOLLINEARITY BY ANCHOR CONDITION")
+    print("(lower |r| = better γ/τ identification)")
+    print(f"{'=' * 70}")
+    print(f"  {'condition':<25} | {'n':>4} | {'r(γ, mean τ)':>13} | "
+          f"{'|r|':>6} | {'p':>10}")
+    print(f"  {'-'*25}-+-{'-'*4}-+-{'-'*13}-+-{'-'*6}-+-{'-'*10}")
+    for _, r in summary.iterrows():
+        print(f"  {r['condition']:<25} | {int(r['n_anchors']):>4} | "
+              f"{r['pearson_r']:>+13.3f} | {r['abs_r']:>6.3f} | "
+              f"{r['p_value']:>10.2e}")
+    print(f"\n  Saved: {out_path}")
+    print(f"  Anchor IDs:  {os.path.join(RESULTS_DIR, 'anchor_conditions.csv')}")
 
 
 if __name__ == "__main__":

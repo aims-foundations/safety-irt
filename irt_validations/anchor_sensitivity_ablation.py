@@ -560,6 +560,54 @@ def plot_convergence(results):
     print(f"  Saved: convergence.png")
 
 
+# ── per-language stability ────────────────────────────────────────────────────
+
+def compute_per_language_stability(results, ref_cond=REFERENCE_COND):
+    """
+    For each condition × non-English language, compute:
+      pearson_tau  : Pearson r of τ_i,L (condition) vs τ_i,L (reference)
+                     across all free (non-anchor, non-English) prompts
+      rmse_tau     : RMSE of the same τ cells
+      gamma_value  : γ_L for this condition
+      gamma_ref    : γ_L for the reference condition
+      delta_gamma  : gamma_value − gamma_ref
+    Returns a long-format DataFrame.
+    """
+    ref  = results[ref_cond]
+    l_map = ref['l_map']
+    rows = []
+
+    for cond_name, res in results.items():
+        for lang, li in l_map.items():
+            if lang == 'en':
+                continue
+            free_row = ref['tau_mask'][:, li] > 0
+            t_ref  = ref['tau_mean'][free_row, li]
+            t_cond = res['tau_mean'][free_row, li]
+
+            if free_row.sum() >= 3:
+                r_tau, _ = pearsonr(t_ref, t_cond)
+                rmse_tau = np.sqrt(np.mean((t_ref - t_cond) ** 2))
+            else:
+                r_tau = rmse_tau = np.nan
+
+            gamma_val = res['gamma'][li]
+            gamma_ref = ref['gamma'][li]
+
+            rows.append({
+                'condition':   cond_name,
+                'language':    lang,
+                'n_free_prompts': int(free_row.sum()),
+                'pearson_tau': r_tau,
+                'rmse_tau':    rmse_tau,
+                'gamma_value': gamma_val,
+                'gamma_ref':   gamma_ref,
+                'delta_gamma': gamma_val - gamma_ref,
+            })
+
+    return pd.DataFrame(rows).sort_values(['condition', 'language']).reset_index(drop=True)
+
+
 # ── save parameter CSVs ───────────────────────────────────────────────────────
 
 def save_params_csv(results):
@@ -660,6 +708,14 @@ def main():
     # Save params
     print("\nSaving parameter CSVs...")
     save_params_csv(results)
+
+    per_lang = compute_per_language_stability(results)
+    per_lang.to_csv(os.path.join(RESULTS_DIR, "per_language_stability.csv"), index=False)
+    print("  Saved: per_language_stability.csv")
+    print(f"\n{'=' * 65}")
+    print("PER-LANGUAGE γ / τ STABILITY")
+    print(f"{'=' * 65}")
+    print(per_lang.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
 
     # Plots
     print("\nGenerating figures...")

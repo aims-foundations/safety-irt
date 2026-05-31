@@ -51,6 +51,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 N_BOOTSTRAP = 2000
 RNG = np.random.default_rng(42)
+TOP_N_TAU = 100   # match paper's Table 18: top-N items by positive τ
 
 # Shortened category names for display
 SHORT_NAMES = {
@@ -86,11 +87,20 @@ def parse_tags(tag_str):
 def load_data():
     df = pd.read_csv(TQ_CSV)
     df["id"] = df["id"].astype(str)
+
+    # KW test uses all items; category means use top-N (consistent with paper's Table 18)
+    df_top = df.nlargest(TOP_N_TAU, "tau").copy()
+
     # Explode multi-tag prompts so each row is one category label
     df["tags_list"] = df["category"].apply(parse_tags)
-    df_exp = df.explode("tags_list").copy()
-    df_exp["category_short"] = df_exp["tags_list"].map(SHORT_NAMES).fillna(df_exp["tags_list"])
-    return df, df_exp
+    df_exp_all = df.explode("tags_list").copy()
+    df_exp_all["category_short"] = df_exp_all["tags_list"].map(SHORT_NAMES).fillna(df_exp_all["tags_list"])
+
+    df_top["tags_list"] = df_top["category"].apply(parse_tags)
+    df_exp_top = df_top.explode("tags_list").copy()
+    df_exp_top["category_short"] = df_exp_top["tags_list"].map(SHORT_NAMES).fillna(df_exp_top["tags_list"])
+
+    return df, df_exp_all, df_exp_top
 
 
 def bootstrap_ci(values, n_boot=N_BOOTSTRAP, ci=0.95):
@@ -163,29 +173,37 @@ def plot_boxplot(df_exp, summary):
 
 def main():
     print("Loading data...")
-    df, df_exp = load_data()
-    print(f"  {len(df)} prompt×language pairs; {df_exp['category_short'].nunique()} categories after explode.")
+    df, df_exp_all, df_exp_top = load_data()
+    print(f"  {len(df)} total prompt×language pairs; top-{TOP_N_TAU} subset for category means.")
 
-    # Kruskal-Wallis: is there a significant category effect?
-    kw_stat, kw_p, n_groups = kruskal_test(df_exp)
-    print(f"\nKruskal-Wallis across {n_groups} categories: H={kw_stat:.2f}, p={kw_p:.4e}")
+    # Kruskal-Wallis on ALL items: broadest test of category effect
+    kw_stat, kw_p, n_groups = kruskal_test(df_exp_all)
+    print(f"\nKruskal-Wallis across {n_groups} categories (all {len(df)} pairs): H={kw_stat:.2f}, p={kw_p:.4e}")
 
-    # Category summary with bootstrap CIs
-    summary = category_summary(df_exp)
+    # Category summary with bootstrap CIs — top-N only, consistent with paper Table 18
+    summary = category_summary(df_exp_top)
     summary_path = os.path.join(OUT_DIR, "category_tau_summary.csv")
     summary.to_csv(summary_path, index=False)
-    print("\n=== Mean τ by category (all prompts × languages) ===")
+    print(f"\n=== Mean τ by category (top-{TOP_N_TAU} items by τ, consistent with paper Table 18) ===")
     print(summary[["category", "n_obs", "mean_tau", "ci95_lo", "ci95_hi",
                     "pct_positive", "mean_abs_tau"]].to_string(index=False))
 
-    # Per-language breakdown
-    lang_pivot = category_by_language(df_exp)
+    # Category summary for ALL items (full 2835 pairs)
+    summary_all = category_summary(df_exp_all)
+    summary_all_path = os.path.join(OUT_DIR, "category_tau_summary_all_items.csv")
+    summary_all.to_csv(summary_all_path, index=False)
+    print(f"\n=== Mean τ by category (ALL {len(df)} prompt×language pairs) ===")
+    print(summary_all[["category", "n_obs", "mean_tau", "ci95_lo", "ci95_hi",
+                        "pct_positive", "mean_abs_tau"]].to_string(index=False))
+
+    # Per-language breakdown (top-N)
+    lang_pivot = category_by_language(df_exp_top)
     lang_pivot.to_csv(os.path.join(OUT_DIR, "category_tau_by_lang.csv"))
 
-    # Plot
-    plot_boxplot(df_exp, summary)
+    # Plot using top-N
+    plot_boxplot(df_exp_top, summary)
 
-    # Identify "culturally sensitive" categories: top third by mean τ
+    # Identify top/bottom categories
     top_n = max(3, len(summary) // 3)
     top_cats = summary.head(top_n)
     bot_cats = summary.tail(top_n)
@@ -194,7 +212,8 @@ def main():
     # Plain-text summary
     lines = ["=== Cultural/Conceptual Mismatch Robustness Summary ===\n"]
     lines.append(f"Dataset: {len(df)} prompt×language pairs, {df['id'].nunique()} unique prompts, 9 languages.")
-    lines.append(f"Kruskal-Wallis test for category effect: H={kw_stat:.2f}, p={kw_p:.2e} ({n_groups} groups)\n")
+    lines.append(f"Kruskal-Wallis test for category effect (all items): H={kw_stat:.2f}, p={kw_p:.2e} ({n_groups} groups)")
+    lines.append(f"Category means computed on top-{TOP_N_TAU} items by τ (consistent with paper Table 18).\n")
     lines.append("Top categories by mean τ (95% bootstrap CI):")
     for _, r in top_cats.iterrows():
         lines.append(f"  {r.category:<40}  mean τ={r.mean_tau:+.3f}  95%CI=[{r.ci95_lo:+.3f}, {r.ci95_hi:+.3f}]  n={r.n_obs}")

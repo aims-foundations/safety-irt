@@ -96,6 +96,32 @@ def human_tq_robustness(htq: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ── Analysis 1b: Human TQ vs automated metrics (Bengali bridge) ───────────────
+def human_vs_automated_metrics(htq: pd.DataFrame) -> pd.DataFrame:
+    """
+    For validated languages (zh/th/bn), compute Spearman ρ between human TQ
+    and each automated metric. Bengali is lower-resource than zh/th; high
+    agreement there supports metric reliability in sw/jv.
+    """
+    rows = []
+    for lang in VALIDATED:
+        sub = htq[htq["language"] == lang].dropna(subset=["translation_quality"] + METRICS)
+        metric_rhos = {}
+        rho_vals = []
+        for m in METRICS:
+            r, p = spearmanr(sub["translation_quality"], sub[m])
+            metric_rhos[f"rho_human_{m}"] = round(float(r), 3)
+            metric_rhos[f"p_human_{m}"]   = round(float(p), 4)
+            rho_vals.append(r)
+        rows.append({
+            "language": lang,
+            "n": len(sub),
+            "mean_rho_human_vs_automated": round(float(np.mean(rho_vals)), 3),
+            **metric_rhos,
+        })
+    return pd.DataFrame(rows)
+
+
 # ── Analysis 2: Inter-metric agreement ───────────────────────────────────────
 def intermetric_agreement(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -154,9 +180,17 @@ def main():
         print(rob_human[["language","n_all","mean_abs_tau_all","n_high_tq",
                           "mean_abs_tau_high_tq","delta_abs_tau",
                           "human_tq_vs_tau_rho","human_tq_vs_tau_p"]].to_string(index=False))
+
+        # 1b. Human TQ vs automated metrics
+        hvm = human_vs_automated_metrics(htq)
+        hvm.to_csv(os.path.join(OUT_DIR, "tq_human_vs_automated.csv"), index=False)
+        print("\n=== 1b. Human TQ vs automated metrics (Bengali bridge) ===")
+        print(hvm[["language","n","mean_rho_human_vs_automated"] +
+                   [f"rho_human_{m}" for m in METRICS]].to_string(index=False))
     else:
         print("  Human TQ file not found — skipping analysis 1.")
         rob_human = None
+        hvm = None
 
     # 2. Inter-metric agreement
     agree = intermetric_agreement(df)
@@ -182,6 +216,17 @@ def main():
                 f"high-TQ (≥4)={r.mean_abs_tau_high_tq} "
                 f"(Δ={r.delta_abs_tau:+.3f}); "
                 f"human TQ vs τ: ρ={r.human_tq_vs_tau_rho}, p={r.human_tq_vs_tau_p}"
+            )
+        lines.append("")
+
+    if hvm is not None:
+        lines.append("1b. Human TQ vs automated metrics (Bengali bridge):")
+        for _, r in hvm.iterrows():
+            rho_parts = ", ".join(
+                f"{m}={r[f'rho_human_{m}']}" for m in METRICS
+            )
+            lines.append(
+                f"   {r.language} (n={r.n}): mean ρ={r.mean_rho_human_vs_automated}  [{rho_parts}]"
             )
         lines.append("")
 

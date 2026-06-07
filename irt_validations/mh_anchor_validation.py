@@ -79,6 +79,12 @@ SIG_ALPHA       = 0.05
 # reference and focal groups. Standard practice (Holland & Thayer 1988).
 N_STRATA_BINS  = 10   # deciles
 
+# Minimum strata that must contribute non-degenerate 2×2 tables before MH χ²
+# is considered reliable. With < 3 strata, the χ² collapses toward a marginal-
+# proportion comparison and emits unreliable values. Cells with fewer strata
+# are returned as NaN rather than polluting the median-χ² comparison.
+MIN_STRATA_USED = 3
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -222,7 +228,8 @@ def mh_for_item_lang(item_df, ref_lang, foc_lang):
         bc_over_N += B * C / N
         n_strata_used += 1
 
-    if var_sum <= 0 or bc_over_N <= 0 or ad_over_N <= 0:
+    if (var_sum <= 0 or bc_over_N <= 0 or ad_over_N <= 0
+            or n_strata_used < MIN_STRATA_USED):
         return np.nan, np.nan, np.nan, np.nan, n_strata_used
 
     # Holland-Thayer χ² (continuity-corrected)

@@ -321,6 +321,55 @@ def build_soft_anchor_priors(anchor_ids, all_prompt_ids):
     return pd.DataFrame(rows)
 
 
+# ── Re-usable entry point (importable by other scripts) ───────────────────────
+
+def compute_lords_chi2_scores():
+    """
+    Pure function: load data, run the variance filter, compute Lord's χ² across
+    all candidate items × focal languages, and return the per-item agreement
+    scores DataFrame. Performs NO file writes and does NOT print headline text.
+
+    Use this from sibling validation scripts (e.g., mh_anchor_validation.py) to
+    obtain the same Lord's χ² magnitudes that drive anchor selection, without
+    side-effects on the on-disk anchor files.
+
+    Returns
+    -------
+    scores_df : DataFrame with columns
+        prompt_id, n_languages, mean_chi2, median_chi2, max_chi2,
+        chi2_<lang> (one per focal language), rank, selected
+    """
+    matrices = load_response_matrices()
+    if REFERENCE_LANG not in matrices:
+        raise ValueError(f"Reference language '{REFERENCE_LANG}' not found")
+    mat_ref = matrices[REFERENCE_LANG]
+    candidate_ids, _stats, ref_b_dict, ref_a_dict = variance_filter(mat_ref)
+    scores_df = compute_agreement_scores(
+        mat_ref, matrices, candidate_ids, ref_b_dict, ref_a_dict)
+    return scores_df
+
+
+def verify_anchors_match_huggingface(scores_df, hf_anchor_ids):
+    """
+    Compare the top-N_ANCHORS items in `scores_df` against the anchor IDs
+    loaded from HuggingFace. Returns a dict with set-overlap statistics.
+    """
+    regenerated = set(scores_df.loc[scores_df["selected"], "prompt_id"].astype(str))
+    hf_set      = {str(x) for x in hf_anchor_ids}
+    intersect   = regenerated & hf_set
+    only_regen  = regenerated - hf_set
+    only_hf     = hf_set - regenerated
+    return {
+        "n_regenerated":  len(regenerated),
+        "n_huggingface":  len(hf_set),
+        "n_intersection": len(intersect),
+        "jaccard":        len(intersect) / len(regenerated | hf_set) if (regenerated | hf_set) else 0.0,
+        "only_regen":     sorted(only_regen),
+        "only_hf":        sorted(only_hf),
+        "match":          regenerated == hf_set,
+    }
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():

@@ -181,13 +181,26 @@ def score_replication(beta, gamma, configs, proportion, direction, seed):
 
 # ── one cell (aggregate over replications) ───────────────────────────────────
 def run_cell(beta, gamma, configs, proportion, direction, n_reps=N_REPS):
+    # Deterministic, session-independent seed per (proportion, direction, rep).
+    # Do NOT use hash() — CPython salts string hashing with PYTHONHASHSEED, so a
+    # tuple containing `direction` reseeds differently every interpreter restart.
+    prop_idx = PROPORTIONS.index(proportion)
+    dir_idx  = DIRECTIONS.index(direction)
+    cell_base = BASE_SEED + (prop_idx * len(DIRECTIONS) + dir_idx) * 100_000
     recs = []
     for r in range(n_reps):
-        seed = BASE_SEED + hash((round(proportion, 3), direction, r)) % 1_000_000
-        recs.append(score_replication(beta, gamma, configs, proportion, direction, seed))
+        seed = cell_base + r                      # unique per rep (r < 100_000)
+        rec = score_replication(beta, gamma, configs, proportion, direction, seed)
+        rec["seed"] = seed                        # "recorded", per the plan
+        recs.append(rec)
     d = pd.DataFrame(recs)
-    out = {"proportion": proportion, "direction": direction, "n_reps": n_reps}
+    # seeds are contiguous (cell_base .. cell_base+n_reps-1); record the range
+    # rather than a meaningless mean/sd, so every rep is exactly reproducible.
+    out = {"proportion": proportion, "direction": direction, "n_reps": n_reps,
+           "seed_base": cell_base, "seed_lo": cell_base, "seed_hi": cell_base + n_reps - 1}
     for col in d.columns:
+        if col == "seed":
+            continue
         out[f"{col}_mean"] = d[col].mean()
         out[f"{col}_sd"]   = d[col].std(ddof=1)
     return out

@@ -35,9 +35,12 @@ from scipy.stats import chi2, rankdata
 
 warnings.filterwarnings("ignore")
 
-from phase_1 import load_preserved, LANGS
-from phase_2 import PROPORTIONS, DIRECTIONS
-from phase_3 import generate_dataset, df_to_matrices
+try:
+    from phase_1 import load_preserved, LANGS
+    from phase_2 import PROPORTIONS, DIRECTIONS
+    from phase_3 import generate_dataset, df_to_matrices
+except ModuleNotFoundError:
+    pass  # Colab: phases 1-3 ran as cells above; their names are in globals
 
 
 # ── locate and import the deployed selection code (model/anchors.py) ─────────

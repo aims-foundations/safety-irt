@@ -16,7 +16,10 @@ Colab: run after phase_1. Defines build_tau(), used by phase_3.
 
 import numpy as np
 
-from phase_1 import LANGS, N_PROMPTS, M
+try:
+    from phase_1 import LANGS, N_PROMPTS, M      # when run as a .py module
+except ModuleNotFoundError:
+    pass  # Colab: phase_1 ran as a cell above; its names are already in globals
 
 PROPORTIONS = [0.10, 0.25, 0.40, 0.50]
 DIRECTIONS  = ["balanced", "unbalanced"]

@@ -21,8 +21,11 @@ Colab: run after phase_2.
 import numpy as np
 import pandas as pd
 
-from phase_1 import LANGS, EN_IDX, N_PROMPTS, N_PASSES, draw_person_params
-from phase_2 import build_tau
+try:
+    from phase_1 import LANGS, EN_IDX, N_PROMPTS, N_PASSES, draw_person_params
+    from phase_2 import build_tau
+except ModuleNotFoundError:
+    pass  # Colab: phase_1/phase_2 ran as cells above; their names are in globals
 
 
 def generate_dataset(beta, gamma, configs, proportion, direction, seed, magnitude=None):
@@ -91,7 +94,10 @@ def df_to_matrices(df):
 
 
 if __name__ == "__main__":
-    from phase_1 import load_preserved
+    try:
+        from phase_1 import load_preserved
+    except ModuleNotFoundError:
+        pass  # Colab: load_preserved already defined by the phase_1 cell
     beta, gamma, configs = load_preserved()
     df, true_dif = generate_dataset(beta, gamma, configs,
                                     proportion=0.40, direction="unbalanced", seed=0)

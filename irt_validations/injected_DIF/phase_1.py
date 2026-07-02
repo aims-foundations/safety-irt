@@ -84,6 +84,21 @@ def load_preserved(token=None):
     return beta, gamma, configs
 
 
+def load_tau_pool(token=None):
+    """Empirical signed tau (Safety_Tax) over FREE cells: non-anchor, non-English.
+
+    Used by phase_2's 'realistic' direction to resample real-like DIF (reproduces
+    the 59/41 sign split, heavy tails, and net mean ~+0.21 of the real data).
+    """
+    if token is None:
+        token = _hf_token()
+    res = pd.read_csv(hf_hub_download(REPO, f"{BASE}/bayesian_irt_results_binary.csv",
+                                      repo_type=REPO_TYPE, token=token))
+    anchor = res["Is_Anchor"].astype(str).str.strip().str.lower().eq("true")
+    pool = res.loc[(~anchor) & (res["language"] != "en"), "Safety_Tax"]
+    return pool.dropna().to_numpy(dtype=float)
+
+
 def draw_person_params(rng, n_configs):
     """Fresh theta (n_configs,) and delta (n_configs, 10) for ONE replication.
 

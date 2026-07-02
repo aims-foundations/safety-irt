@@ -45,7 +45,10 @@ _save = _fs_savefig if _HAS_FIG_STYLE else \
     (lambda f, p, **k: (f.savefig(p, dpi=300, bbox_inches="tight"), plt.close(f)))
 
 RESULTS_CSV = os.path.join(_HERE, "phase_4_results.csv")
-DIRECTIONS  = ["balanced", "unbalanced"]
+try:
+    from phase_2 import DIRECTIONS            # keep panels in sync with the grid
+except ModuleNotFoundError:
+    DIRECTIONS = ["balanced", "unbalanced", "realistic"]
 
 
 def _load(results):
@@ -63,13 +66,21 @@ def _line(ax, sub, mean_col, sd_col, color, label, ls="-", marker="o"):
         ax.fill_between(x, y - sd, y + sd, color=color, alpha=0.15, lw=0)
 
 
+def _panels(df):
+    """Directions actually present in the results, in canonical order."""
+    return [d for d in DIRECTIONS if (df["direction"] == d).any()]
+
+
 def plot_contamination(results=None, save=True):
     df = _load(results)
+    dirs = _panels(df)
     if _HAS_FIG_STYLE:
         apply_style()
-    fig, axes = make_fig(len(DIRECTIONS), sharey=True)
+    fig, axes = make_fig(len(dirs), sharey=True)
+    if len(dirs) == 1:
+        axes = [axes]
 
-    for ax, direction in zip(axes, DIRECTIONS):
+    for ax, direction in zip(axes, dirs):
         sub = df[df["direction"] == direction].sort_values("proportion")
         _line(ax, sub, "contam_floor_mean",  "contam_floor_sd",  C_RED,    "Floor (random)")
         _line(ax, sub, "contam_method_mean", "contam_method_sd", C_BLUE,   "Method (χ²-first)")
@@ -93,12 +104,15 @@ def plot_contamination(results=None, save=True):
 
 def plot_diagnostics(results=None, save=True):
     df = _load(results)
+    dirs = _panels(df)
     has_det = "hit_rate_mean" in df.columns
     if _HAS_FIG_STYLE:
         apply_style()
-    fig, axes = make_fig(len(DIRECTIONS), sharey=True)
+    fig, axes = make_fig(len(dirs), sharey=True)
+    if len(dirs) == 1:
+        axes = [axes]
 
-    for ax, direction in zip(axes, DIRECTIONS):
+    for ax, direction in zip(axes, dirs):
         sub = df[df["direction"] == direction].sort_values("proportion")
         _line(ax, sub, "rank_auc_mean", "rank_auc_sd", C_PURPLE, "Rank AUC", marker="o")
         if has_det:

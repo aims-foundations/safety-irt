@@ -3,7 +3,8 @@ Phase 4 — anchor selection on synthetic data (the test).  [cached / fast path]
 
 Drives the REAL selection statistic (model/anchors.py's fit_2pl / mean_equating /
 lords_chi_square — imported, not reimplemented) on each synthetic dataset, over
-the 4 x 2 = 8-cell grid, N_REPS replications per cell.
+the 4 x 3 = 12-cell grid (proportion x {balanced, unbalanced, realistic}),
+N_REPS replications per cell.
 
 WHY THIS IS FAST *AND* FAITHFUL
 -------------------------------

@@ -1,0 +1,21 @@
+=== IRT vs Baselines Summary ===
+
+Test-takers: 61 | Items: 315 | Languages: 10
+Obs (aggregated): 192150
+
+1. Bradley-Terry vs IRT θ
+   Spearman ρ = 0.8061  (p = 4.60e-15,  n = 61)
+   Interpretation: BT ability and IRT θ agree on model ordering but BT
+   collapses all language variation into a single ability — cannot recover γ or τ.
+
+2. Log-loss comparison (same held-in subset)
+   Intercept-only:                     0.2502
+   No-DIF logistic (model+prompt+lang): 0.1468
+   2PL IRT with τ (DIF):               0.1451
+   ΔLL (no-DIF → IRT): 0.0017  (1.2% reduction)
+
+3. IRT ↔ GLMM equivalence
+   1PL IRT (Rasch) is a GLMM with random item and person intercepts.
+   2PL adds random slopes (item discrimination). Our Bayesian SVI model
+   IS a structured GLMM; the comparison is within, not against, that class.
+   Ref: De Boeck et al. (2011) Psychometrika; Wilson et al. (2008).

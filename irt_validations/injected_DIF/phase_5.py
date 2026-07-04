@@ -41,10 +41,17 @@ except ImportError:
         axes = axes[0]
         return (fig, axes[0]) if n_panels == 1 else (fig, axes)
 
-_save = _fs_savefig if _HAS_FIG_STYLE else \
-    (lambda f, p, **k: (f.savefig(p, dpi=300, bbox_inches="tight"), plt.close(f)))
+def _save_multi(fig, out_base, extra=None):
+    """Save png+pdf with a tight bbox that includes out-of-axes artists (e.g. a
+    figure-level legend), so nothing is clipped. Keeps fig_style's rcParams."""
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{out_base}.{ext}", dpi=300, bbox_inches="tight",
+                    bbox_extra_artists=tuple(extra or ()))
+    plt.close(fig)
 
-RESULTS_CSV = os.path.join(_HERE, "phase_4_results.csv")
+_RESULTS_DIR = os.path.join(_HERE, "results")
+os.makedirs(_RESULTS_DIR, exist_ok=True)
+RESULTS_CSV = os.path.join(_RESULTS_DIR, "phase_4_results.csv")
 try:
     from phase_2 import DIRECTIONS            # keep panels in sync with the grid
 except ModuleNotFoundError:
@@ -76,7 +83,7 @@ def plot_contamination(results=None, save=True):
     dirs = _panels(df)
     if _HAS_FIG_STYLE:
         apply_style()
-    fig, axes = make_fig(len(dirs), sharey=True)
+    fig, axes = make_fig(len(dirs), sharey=True, width=7.5, height_override=2.4)
     if len(dirs) == 1:
         axes = [axes]
 
@@ -93,11 +100,14 @@ def plot_contamination(results=None, save=True):
         ax.set_xlabel("DIF proportion (%)")
         ax.set_ylim(-0.03, 1.0)
     axes[0].set_ylabel("Anchor contamination")
-    axes[-1].legend(fontsize=5, loc="upper left", frameon=False)
+    # single legend ABOVE the panels so it never overlaps the rising lines
+    handles, labels = axes[0].get_legend_handles_labels()
+    leg = fig.legend(handles, labels, loc="lower center", ncol=len(labels),
+                     bbox_to_anchor=(0.5, 1.0), frameon=False, fontsize=8)
 
     if save:
-        out = os.path.join(_HERE, "phase_5_contamination")
-        _save(fig, out if _HAS_FIG_STYLE else out + ".png")
+        out = os.path.join(_RESULTS_DIR, "phase_5_contamination")
+        _save_multi(fig, out, extra=[leg])
         print(f"saved: {out}")
     return fig
 
@@ -108,7 +118,7 @@ def plot_diagnostics(results=None, save=True):
     has_det = "hit_rate_mean" in df.columns
     if _HAS_FIG_STYLE:
         apply_style()
-    fig, axes = make_fig(len(dirs), sharey=True)
+    fig, axes = make_fig(len(dirs), sharey=True, width=7.5, height_override=2.4)
     if len(dirs) == 1:
         axes = [axes]
 
@@ -123,11 +133,13 @@ def plot_diagnostics(results=None, save=True):
         ax.set_xlabel("DIF proportion (%)")
         ax.set_ylim(-0.03, 1.03)
     axes[0].set_ylabel("Rate")
-    axes[-1].legend(fontsize=5, loc="center left", frameon=False)
+    handles, labels = axes[0].get_legend_handles_labels()
+    leg = fig.legend(handles, labels, loc="lower center", ncol=len(labels),
+                     bbox_to_anchor=(0.5, 1.0), frameon=False, fontsize=8)
 
     if save:
-        out = os.path.join(_HERE, "phase_5_diagnostics")
-        _save(fig, out if _HAS_FIG_STYLE else out + ".png")
+        out = os.path.join(_RESULTS_DIR, "phase_5_diagnostics")
+        _save_multi(fig, out, extra=[leg])
         print(f"saved: {out}")
     return fig
 

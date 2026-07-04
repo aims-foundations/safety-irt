@@ -1,0 +1,49 @@
+======================================================================
+LOGISTIC-REGRESSION DIF VALIDATION OF LORD'S-χ² SELECTED ANCHORS
+======================================================================
+
+Purpose: Complements the MH check by also catching NON-UNIFORM DIF,
+which parallels the 2PL discrimination term α_i in our IRT model.
+LR-DIF conditions on observed total score, so no IRT calibration.
+
+Anchors evaluated     : 40
+Non-anchors evaluated : 265
+Languages (vs English): 9  (ar, bn, it, jv, ko, sw, th, vi, zh)
+
+----------------------------------------------------------------------
+HEADLINE: rank correlation with Lord's χ²
+----------------------------------------------------------------------
+  Spearman ρ = +0.361  (n = 158, p = 3.13e-06)
+  Positive ρ means Lord's and LR-DIF rank items consistently.
+
+----------------------------------------------------------------------
+ITEM-LEVEL DIF MAGNITUDE  (anchors vs non-anchors)
+----------------------------------------------------------------------
+  anchor (Lord's selected)          n=40    mean χ²=  34.36  median χ²=  20.01  median ΔR²=0.0563
+  candidate non-anchor (variance-filter passed) n=118   mean χ²=  70.91  median χ²=  51.84  median ΔR²=0.0634
+
+  pct_lang_A : within-item proportion of languages classified Zumbo A
+
+  anchor (Lord's selected)          n=40    mean pct_A= 88.5%  median pct_A=100.0%
+  candidate non-anchor (variance-filter passed) n=118   mean pct_A= 82.7%  median pct_A= 88.9%
+
+----------------------------------------------------------------------
+UNIFORM vs NON-UNIFORM DIF (mean # of 9 languages flagged per item)
+----------------------------------------------------------------------
+  anchor (Lord's selected)           uniform sig: 4.70   non-uniform sig: 2.98
+  candidate non-anchor (variance-filter passed)  uniform sig: 6.65   non-uniform sig: 5.55
+
+----------------------------------------------------------------------
+WORST-CASE ZUMBO ΔR² CLASSIFICATION  (completeness only)
+----------------------------------------------------------------------
+  A: ΔR² < 0.13 OR LRT not significant
+  B: 0.13 ≤ ΔR² < 0.26 AND LRT significant
+  C: ΔR² ≥ 0.26 AND LRT significant
+
+  anchor (Lord's selected)          n=40    A:  52.5%  B:  35.0%  C:  12.5%
+  candidate non-anchor (variance-filter passed) n=118   A:  33.1%  B:  44.1%  C:  22.9%
+
+----------------------------------------------------------------------
+RANK CORRELATION DETAIL (already shown above as headline)
+----------------------------------------------------------------------
+  Spearman ρ = +0.361  (n = 158, p = 3.13e-06)

@@ -1,0 +1,33 @@
+=== TQ Low-Resource Validation Summary ===
+
+1. Human-TQ robustness (zh/th/bn):
+   zh: mean|τ| all=0.553 → high-TQ (≥4)=0.543 (Δ=-0.010); human TQ vs τ: ρ=-0.015, p=0.7869
+   th: mean|τ| all=0.55 → high-TQ (≥4)=0.533 (Δ=-0.017); human TQ vs τ: ρ=-0.014, p=0.8083
+   bn: mean|τ| all=0.543 → high-TQ (≥4)=0.512 (Δ=-0.031); human TQ vs τ: ρ=-0.046, p=0.4192
+
+1b. Human TQ vs automated metrics (Bengali bridge):
+   zh (n=315): mean ρ=0.094  [labse=-0.018, comet=0.123, cometkiwi=0.096, xcomet_xl=0.178]
+   th (n=315): mean ρ=0.239  [labse=0.151, comet=0.253, cometkiwi=0.27, xcomet_xl=0.284]
+   bn (n=315): mean ρ=0.289  [labse=0.176, comet=0.336, cometkiwi=0.285, xcomet_xl=0.358]
+
+2. Inter-metric agreement (mean Spearman ρ across 6 metric pairs):
+   zh: 0.439 (validated)
+   it: 0.533 (automated only)
+   ko: 0.577 (automated only)
+   vi: 0.580 (automated only)
+   ar: 0.495 (automated only)
+   th: 0.470 (validated)
+   bn: 0.432 (validated)
+   sw: 0.428 (automated only)
+   jv: 0.442 (automated only)
+
+3. Automated-TQ filter robustness (remove bottom-25% COMET):
+   zh: 0.553 → 0.556 (Δ=+0.003) (validated)
+   it: 0.503 → 0.493 (Δ=-0.010) (automated only)
+   ko: 0.727 → 0.677 (Δ=-0.050) (automated only)
+   vi: 0.669 → 0.641 (Δ=-0.028) (automated only)
+   ar: 0.569 → 0.57 (Δ=+0.001) (automated only)
+   th: 0.55 → 0.531 (Δ=-0.019) (validated)
+   bn: 0.543 → 0.582 (Δ=+0.039) (validated)
+   sw: 0.568 → 0.52 (Δ=-0.048) (automated only)
+   jv: 0.854 → 0.903 (Δ=+0.049) (automated only)

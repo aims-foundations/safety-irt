@@ -328,7 +328,9 @@ def _results_path():
         d = os.path.dirname(os.path.abspath(__file__))
     except NameError:
         d = os.getcwd()                        # Colab cell: __file__ undefined
-    return os.path.join(d, "phase_4_results.csv")
+    results_dir = os.path.join(d, "results")
+    os.makedirs(results_dir, exist_ok=True)
+    return os.path.join(results_dir, "phase_4_results.csv")
 
 
 def run_grid(n_reps=N_REPS, n_jobs=N_JOBS, token=None, results_path=None, resume=True):

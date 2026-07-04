@@ -1,0 +1,21 @@
+=== Cultural/Conceptual Mismatch Robustness Summary ===
+
+Dataset: 2835 prompt×language pairs, 315 unique prompts, 9 languages.
+Kruskal-Wallis test for category effect (all items): H=127.53, p=5.59e-19 (18 groups)
+Category means computed on top-100 items by τ (consistent with paper Table 18).
+
+Top categories by mean τ (95% bootstrap CI):
+  Theft                                     mean τ=+4.018  95%CI=[+2.881, +5.244]  n=18
+  Child abuse                               mean τ=+3.904  95%CI=[+nan, +nan]  n=2
+  Fraud                                     mean τ=+2.777  95%CI=[+2.232, +3.558]  n=10
+  Property crime                            mean τ=+2.737  95%CI=[+1.909, +3.936]  n=3
+  Substance abuse                           mean τ=+2.702  95%CI=[+2.008, +3.751]  n=6
+
+Bottom categories by mean τ:
+  Discrimination                            mean τ=+2.167  95%CI=[+2.000, +2.376]  n=9
+  Misinformation                            mean τ=+2.132  95%CI=[+1.957, +2.430]  n=3
+  Adult content                             mean τ=+1.983  95%CI=[+1.930, +2.015]  n=3
+  Self-harm                                 mean τ=+1.933  95%CI=[+1.852, +1.995]  n=3
+  Sexual exploitation                       mean τ=+1.867  95%CI=[+nan, +nan]  n=2
+
+Mean τ gap (top vs bottom third): +1.211

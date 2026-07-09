@@ -196,4 +196,12 @@ python -m data_curation.variant_ablation doppelgangers
 - **Cultural/conceptual mismatches**: Native speakers identify Western-specific concepts (SSNs, FBI, U.S. racial demographics) in high-τ prompts with perfect translation, suggesting the benchmark itself introduces bias.
 
 ## Citation
-Coming soon
+@misc{zhang2026safetyguardrailsdegradelanguages,
+      title={Why Do Safety Guardrails Degrade Across Languages?}, 
+      author={Max Zhang and Ameen Patel and Sang T. Truong and Sanmi Koyejo},
+      year={2026},
+      eprint={2605.17173},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2605.17173}, 
+}

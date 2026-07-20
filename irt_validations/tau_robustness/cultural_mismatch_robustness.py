@@ -124,7 +124,7 @@ def category_summary(df_exp):
             "mean_tau":          round(float(v.mean()), 3),
             "mean_abs_tau":      round(float(np.abs(v).mean()), 3),
             "median_tau":        round(float(np.median(v)), 3),
-            "std_tau":           round(float(v.std()), 3),
+            "std_tau":           round(float(v.std(ddof=1)) if len(v) > 1 else 0.0, 3),
             "ci95_lo":           round(float(ci_lo), 3),
             "ci95_hi":           round(float(ci_hi), 3),
             "pct_positive":      round(float((v > 0).mean() * 100), 1),

@@ -5,13 +5,16 @@ import numpy as np
 import pandas as pd
 from openai import AsyncOpenAI
 import nest_asyncio
+from huggingface_hub import snapshot_download
 
 nest_asyncio.apply()
 
 # ── CONFIG ─────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-MULTIJAIL_CSV = "MultiJail.csv"
+DATA_DIR = snapshot_download(repo_id="safety-irt/safety-data",
+                              repo_type="dataset", token=False)
+MULTIJAIL_CSV = os.path.join(DATA_DIR, "multijail.csv")
 IRT_RESULTS   = os.path.join(_REPO_ROOT, "model", "results", "bayesian_irt_results_binary.csv")
 RESULTS_DIR   = os.path.join(_HERE, "results_ambiguity")
 os.makedirs(RESULTS_DIR, exist_ok=True)
